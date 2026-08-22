@@ -484,14 +484,17 @@ def truy_van_bao_cao_ontime(tu, den, hub_chon=None):
     )
 
     if chi_bn:
+        # BN: dùng đúng cách đếm "Số vận đơn" như tab Dữ liệu thô:
+        # lọc Dỡ xuống xe theo Hub/ngày rồi đếm DISTINCT Mã vận đơn.
+        # Không áp thêm dedup 15 phút ở đây vì tab Dữ liệu thô đang cho
+        # số chuẩn là 12,964 vận đơn trên cùng tập dữ liệu.
         sql_bn = """
-            SELECT "Mã vận đơn", "Thời gian quét", "Ngày vận hành"
+            SELECT "Mã vận đơn"
             FROM quet_hang
             WHERE "Hub" = %s
               AND "Loại quét" = %s
               AND "Ngày vận hành" >= %s
               AND "Ngày vận hành" <= %s
-            ORDER BY "Mã vận đơn", "Ngày vận hành", "Thời gian quét"
         """
 
         con = ket_noi()
@@ -504,47 +507,12 @@ def truy_van_bao_cao_ontime(tu, den, hub_chon=None):
         finally:
             con.close()
 
-        if df_bn.empty:
-            tong_mau_so = 0
-        else:
-            df_bn["Mã chuẩn"] = _chuan_hoa_ma(df_bn["Mã vận đơn"])
-            df_bn["Thời gian quét_dt"] = pd.to_datetime(
-                df_bn["Thời gian quét"],
-                errors="coerce",
-            )
-            df_bn = df_bn[df_bn["Mã chuẩn"] != ""].copy()
+        tong_mau_so = (
+            int(df_bn["Mã vận đơn"].nunique())
+            if not df_bn.empty
+            else 0
+        )
 
-            kept = []
-
-            for _, grp in df_bn.groupby(
-                ["Mã chuẩn", "Ngày vận hành"],
-                sort=False,
-                dropna=False,
-            ):
-                grp = grp.sort_values("Thời gian quét_dt")
-                chain = [grp.iloc[0]]
-
-                for i in range(1, len(grp)):
-                    nxt = grp.iloc[i]
-                    prev = chain[-1]
-
-                    dt_prev = prev["Thời gian quét_dt"]
-                    dt_next = nxt["Thời gian quét_dt"]
-
-                    gap = None
-                    if pd.notna(dt_prev) and pd.notna(dt_next):
-                        gap = abs(
-                            (dt_next - dt_prev).total_seconds()
-                        ) / 60.0
-
-                    if gap is not None and gap <= 15:
-                        chain[-1] = nxt
-                    else:
-                        chain.append(nxt)
-
-                kept.extend(chain)
-
-            tong_mau_so = len(kept)
     else:
         # HCM / SH DC: giữ nguyên hoàn toàn.
         tong_mau_so = len(df_all)
