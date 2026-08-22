@@ -421,6 +421,149 @@ def tinh_ontime_xep_hang(hub, tu, den, loai_tuyen_chon=None):
     return df, None
 
 
+@st.cache_data(ttl=300, show_spinner="Đang lấy báo cáo Ontime...")
+def truy_van_bao_cao_ontime(tu, den, hub_chon=None):
+    """
+    Nguồn: bảng bao_cao trên Supabase.
+
+    Mẫu số = toàn bộ dòng bao_cao trong khoảng ngày/hub đã chọn.
+    Vì bao_cao được dựng từ raw_unload_data (Dỡ xuống xe) sau dedup,
+    đây chính là tổng đơn Dỡ xuống xe đã lọc trùng.
+
+    Tử số = các dòng có "Trạng thái xử lý" = "Ontime".
+    """
+    dieu_kien = []
+    params = []
+
+    if tu:
+        dieu_kien.append('"Ngày vận hành" >= %s')
+        params.append(tu)
+
+    if den:
+        dieu_kien.append('"Ngày vận hành" <= %s')
+        params.append(den)
+
+    if hub_chon:
+        placeholders = ",".join(["%s"] * len(hub_chon))
+        dieu_kien.append(f'"Hub" IN ({placeholders})')
+        params.extend(list(hub_chon))
+
+    sql = 'SELECT * FROM bao_cao'
+    if dieu_kien:
+        sql += ' WHERE ' + ' AND '.join(dieu_kien)
+    sql += ' ORDER BY "Ngày vận hành", "Thời gian quét"'
+
+    con = ket_noi()
+    try:
+        df_all = pd.read_sql(sql, con, params=params)
+    finally:
+        con.close()
+
+    if df_all.empty:
+        return df_all, df_all.copy()
+
+    # Kết hợp là khóa duy nhất của bao_cao; giữ thêm lớp bảo vệ này
+    # để mẫu số không bị phình nếu schema DB thay đổi sau này.
+    if "Kết hợp" in df_all.columns:
+        df_all = df_all.drop_duplicates(subset=["Kết hợp"], keep="last").copy()
+
+    trang_thai = df_all["Trạng thái xử lý"].astype(str).str.strip()
+    df_ontime = df_all.loc[trang_thai.eq("Ontime")].copy()
+
+    return df_all, df_ontime
+
+
+def _feishu_ghi_bao_cao_ontime(token, sheet_name, tong_mau_so,
+                                tong_ontime, ty_le_ontime, df_ontime):
+    """
+    Ghi một sheet Feishu:
+      - KPI ở đầu sheet
+      - toàn bộ chi tiết đơn Ontime ở phía dưới.
+    """
+    sheet_id = _feishu_lay_hoac_tao_sheet(token, sheet_name)
+    _feishu_don_dep_sheet(token, sheet_id)
+
+    kpi_rows = [
+        ["Chỉ tiêu", "Giá trị", "Tỷ lệ"],
+        ["Tổng đơn Dỡ xuống xe sau lọc trùng", int(tong_mau_so), "100.00%"],
+        ["Tổng đơn Ontime", int(tong_ontime), f"{ty_le_ontime:.2f}%"],
+        [],
+        ["CHI TIẾT TẤT CẢ ĐƠN ONTIME"],
+    ]
+
+    detail = _df_ve_gia_tri(df_ontime)
+    values = kpi_rows + detail
+
+    if not values:
+        raise RuntimeError("Không có dữ liệu để ghi lên Feishu.")
+
+    max_cols = max(len(r) for r in values)
+    values = [
+        list(r) + [""] * (max_cols - len(r))
+        for r in values
+    ]
+
+    from openpyxl.utils import get_column_letter
+
+    cot_kt = get_column_letter(max_cols)
+    url = (
+        f"https://open.feishu.cn/open-apis/sheets/v2/spreadsheets/"
+        f"{FEISHU_SPREADSHEET_TOKEN}/values"
+    )
+
+    CHUNK = 500
+    for i in range(0, len(values), CHUNK):
+        phan = values[i:i + CHUNK]
+        dong_bd = i + 1
+        dong_kt = i + len(phan)
+        rng = f"{sheet_id}!A{dong_bd}:{cot_kt}{dong_kt}"
+
+        body = {
+            "valueRange": {
+                "range": rng,
+                "values": phan,
+            }
+        }
+
+        r = requests.put(
+            url,
+            headers=_feishu_headers(token),
+            json=body,
+            timeout=60,
+        )
+        d = r.json()
+
+        if d.get("code") != 0:
+            raise RuntimeError(
+                f"Lỗi ghi báo cáo Ontime lên Feishu: {d.get('msg')}"
+            )
+
+    return sheet_id
+
+
+def day_len_bao_cao_ontime(sheet_name, df_all, df_ontime):
+    if df_all is None or df_all.empty:
+        raise RuntimeError("Không có dữ liệu bao_cao trong điều kiện đã chọn.")
+
+    token = _feishu_token()
+
+    tong_mau_so = len(df_all)
+    tong_ontime = len(df_ontime)
+    ty_le_ontime = (
+        tong_ontime / tong_mau_so * 100
+        if tong_mau_so else 0
+    )
+
+    return _feishu_ghi_bao_cao_ontime(
+        token,
+        sheet_name,
+        tong_mau_so,
+        tong_ontime,
+        ty_le_ontime,
+        df_ontime,
+    )
+
+
 @st.cache_data(ttl=300, show_spinner="Đang tạo file Excel...")
 def xuat_excel(df_dict):
     buf = io.BytesIO()
@@ -523,7 +666,11 @@ def divider_label(text):
 
 
 # ── Tabs đúng nguyên bản: Dữ liệu thô & Ontime Xếp hàng ────────────────────────
-tab_du_lieu, tab_ontime_xh = st.tabs(["  Dữ liệu thô  ", "  Ontime Xếp hàng (Xe)  "])
+tab_du_lieu, tab_ontime_xh, tab_bao_cao_ontime = st.tabs([
+    "  Dữ liệu thô  ",
+    "  Ontime Xếp hàng (Xe)  ",
+    "  Báo cáo Ontime  ",
+])
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -703,3 +850,132 @@ with tab_ontime_xh:
             use_container_width=True,
             type="primary",
         )
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# TAB 3 — BÁO CÁO ONTIME (DỠ XUỐNG XE)
+# ═══════════════════════════════════════════════════════════════════════════════
+with tab_bao_cao_ontime:
+    with st.form("bao_cao_ontime_form"):
+        c1, c2, c3 = st.columns(3)
+
+        nmin_bc, nmax_bc = khoang_ngay("bao_cao", "Ngày vận hành")
+
+        tu_bc = c1.date_input(
+            "Từ ngày vận hành",
+            value=_ngay(nmin_bc) or datetime.date.today(),
+            format="YYYY-MM-DD",
+        )
+        den_bc = c2.date_input(
+            "Đến ngày vận hành",
+            value=_ngay(nmax_bc) or datetime.date.today(),
+            format="YYYY-MM-DD",
+        )
+        hub_bc = c3.multiselect(
+            "Hub",
+            lay_hub(),
+            placeholder="Tất cả",
+            key="hub_bc_ontime",
+        )
+
+        truy_van_bc_clicked = st.form_submit_button(
+            "Truy vấn báo cáo Ontime",
+            type="primary",
+            use_container_width=True,
+        )
+
+    if truy_van_bc_clicked:
+        try:
+            df_bc_all, df_bc_ontime = truy_van_bao_cao_ontime(
+                str(tu_bc) if tu_bc else "",
+                str(den_bc) if den_bc else "",
+                tuple(hub_bc),
+            )
+
+            st.session_state["bc_ontime_all"] = df_bc_all
+            st.session_state["bc_ontime_detail"] = df_bc_ontime
+            st.session_state["bc_ontime_tu"] = str(tu_bc) if tu_bc else ""
+            st.session_state["bc_ontime_den"] = str(den_bc) if den_bc else ""
+            st.session_state["bc_ontime_hub"] = tuple(hub_bc)
+
+        except Exception as e:
+            st.error(f"Lỗi truy vấn báo cáo Ontime: {e}")
+
+    if "bc_ontime_all" in st.session_state:
+        df_bc_all = st.session_state["bc_ontime_all"]
+        df_bc_ontime = st.session_state["bc_ontime_detail"]
+
+        tong_mau_so = len(df_bc_all)
+        tong_ontime = len(df_bc_ontime)
+        ty_le_ontime = (
+            tong_ontime / tong_mau_so * 100
+            if tong_mau_so else 0
+        )
+
+        divider_label("Tổng quan")
+
+        c1, c2, c3 = st.columns(3)
+
+        c1.metric(
+            "Tổng đơn Dỡ xuống xe sau lọc trùng",
+            f"{tong_mau_so:,}",
+        )
+        c2.metric(
+            "Tổng đơn Ontime",
+            f"{tong_ontime:,}",
+        )
+        c3.metric(
+            "Tỷ lệ Ontime",
+            f"{ty_le_ontime:.2f}%",
+        )
+
+        st.caption(
+            f"Công thức: {tong_ontime:,} / {tong_mau_so:,} × 100 "
+            f"= {ty_le_ontime:.2f}%"
+        )
+
+        divider_label(
+            f"Tất cả đơn Ontime "
+            f"({min(len(df_bc_ontime), SO_DONG_HIEN_THI):,} / "
+            f"{len(df_bc_ontime):,} dòng)"
+        )
+
+        st.dataframe(
+            df_bc_ontime.head(SO_DONG_HIEN_THI),
+            use_container_width=True,
+            height=440,
+        )
+
+        c1, c2 = st.columns(2)
+
+        with c1:
+            st.download_button(
+                f"Tải Excel — Tất cả đơn Ontime ({len(df_bc_ontime):,})",
+                xuat_excel({"Ontime": df_bc_ontime}),
+                file_name="bao_cao_ontime.xlsx",
+                use_container_width=True,
+                type="primary",
+            )
+
+        with c2:
+            if st.button(
+                "Đẩy báo cáo Ontime lên Feishu",
+                use_container_width=True,
+                type="primary",
+            ):
+                try:
+                    day_len_bao_cao_ontime(
+                        "Báo cáo Ontime",
+                        df_bc_all,
+                        df_bc_ontime,
+                    )
+
+                    st.success(
+                        f"Đã đẩy {len(df_bc_ontime):,} đơn Ontime "
+                        f"vào Sheet 'Báo cáo Ontime'."
+                    )
+
+                except Exception as e:
+                    st.error(
+                        f"Lỗi đẩy báo cáo Ontime lên Feishu: {e}"
+                    )
