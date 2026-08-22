@@ -431,15 +431,20 @@ def tinh_ontime_xep_hang(hub, tu, den, loai_tuyen_chon=None):
 
 def truy_van_bao_cao_ontime(tu, den, hub_chon=None):
     """
-    TEST LOGIC:
-      1) Lấy TOÀN BỘ bao_cao theo Hub + Ngày.
-      2) Lọc trùng TOÀN BỘ bảng bao_cao theo "Kết hợp", keep="last".
-      3) Từ bảng đã lọc trùng đó mới lấy Trạng thái xử lý = Ontime.
+    BAO_CAO đã được crawler xử lý trùng trước khi lưu DB.
+    Frontend KHÔNG lọc trùng lại.
 
     Mẫu số tổng:
-      quet_hang -> Dỡ xuống xe -> đúng Hub/ngày -> DISTINCT Mã vận đơn.
+      quet_hang -> Loại quét = Dỡ xuống xe
+      -> đúng ngày + Hub
+      -> DISTINCT Mã vận đơn
+
+    Tử số:
+      bao_cao -> đúng ngày + Hub
+      -> Trạng thái xử lý = Ontime
+      -> đếm số dòng nguyên trạng.
     """
-    # ---------------- Mẫu số tổng ----------------
+    # ---------------- MẪU SỐ ----------------
     where_raw = [
         '"Loại quét" = %s',
         '"Ngày vận hành" >= %s',
@@ -475,12 +480,13 @@ def truy_van_bao_cao_ontime(tu, den, hub_chon=None):
             ma_chuan[ma_chuan != ""].nunique()
         )
 
-    # ---------------- TOÀN BỘ bao_cao ----------------
+    # ---------------- TỬ SỐ ----------------
     where_bc = [
+        '"Trạng thái xử lý" = %s',
         '"Ngày vận hành" >= %s',
         '"Ngày vận hành" <= %s',
     ]
-    params_bc = [tu, den]
+    params_bc = ["Ontime", tu, den]
 
     if hub_chon:
         hub_db = [
@@ -502,7 +508,7 @@ def truy_van_bao_cao_ontime(tu, den, hub_chon=None):
 
     con = ket_noi()
     try:
-        df_all = pd.read_sql(
+        df_ontime = pd.read_sql(
             sql_bc,
             con,
             params=params_bc,
@@ -510,28 +516,8 @@ def truy_van_bao_cao_ontime(tu, den, hub_chon=None):
     finally:
         con.close()
 
-    # ĐÂY LÀ TEST CHÍNH:
-    # lọc trùng TOÀN BỘ bảng báo cáo trước khi tính bất kỳ KPI nào.
-    if not df_all.empty and "Kết hợp" in df_all.columns:
-        df_all = df_all.drop_duplicates(
-            subset=["Kết hợp"],
-            keep="last",
-        ).copy()
-
-    if df_all.empty:
-        df_all.attrs["tong_mau_so"] = tong_mau_so
-        return df_all, df_all.copy()
-
-    trang_thai = (
-        df_all["Trạng thái xử lý"]
-        .astype(str)
-        .str.strip()
-    )
-    df_ontime = df_all.loc[
-        trang_thai.eq("Ontime")
-    ].copy()
-
-    df_all.attrs["tong_mau_so"] = tong_mau_so
+    # KHÔNG drop_duplicates.
+    df_all = df_ontime.copy()
     df_ontime.attrs["tong_mau_so"] = tong_mau_so
 
     return df_all, df_ontime
@@ -632,10 +618,18 @@ def day_len_bao_cao_ontime(sheet_name, df_all, df_ontime):
 
 def truy_van_ontime_1am(tu, den, hub_chon=None):
     """
-    Ontime 1AM.
-    Mẫu số: quet_hang / Dỡ xuống xe / scan trước 01:00 / DISTINCT mã.
-    Tử số: TOÀN BỘ bao_cao đã lọc trùng Kết hợp
-            + Ontime + IB trước 01:00.
+    BAO_CAO đã sạch từ crawler -> KHÔNG dedup frontend.
+
+    Mẫu số:
+      quet_hang / Dỡ xuống xe / đúng Hub + ngày
+      / thời gian quét < 01:00 ngày kế tiếp
+      / DISTINCT Mã vận đơn.
+
+    Tử số:
+      bao_cao / đúng Hub + ngày
+      / Trạng thái xử lý = Ontime
+      / IB trước 1h sáng = IB trước 01:00
+      / đếm nguyên số dòng.
     """
     where_parts = [
         '"Loại quét" = %s',
@@ -670,10 +664,12 @@ def truy_van_ontime_1am(tu, den, hub_chon=None):
     else:
         df_ib["Mã chuẩn"] = _chuan_hoa_ma(df_ib["Mã vận đơn"])
         df_ib["Thời gian quét_dt"] = pd.to_datetime(
-            df_ib["Thời gian quét"], errors="coerce"
+            df_ib["Thời gian quét"],
+            errors="coerce",
         )
         df_ib["Ngày vận hành_dt"] = pd.to_datetime(
-            df_ib["Ngày vận hành"], errors="coerce"
+            df_ib["Ngày vận hành"],
+            errors="coerce",
         )
         df_ib["gioi_han_1am"] = (
             df_ib["Ngày vận hành_dt"]
@@ -689,14 +685,20 @@ def truy_van_ontime_1am(tu, den, hub_chon=None):
             subset=["Mã chuẩn", "Ngày vận hành"],
             keep="last",
         )
-
         tong_ib_1am = len(df_ib)
 
     where_bc = [
+        '"Trạng thái xử lý" = %s',
+        '"IB trước 1h sáng" = %s',
         '"Ngày vận hành" >= %s',
         '"Ngày vận hành" <= %s',
     ]
-    params_bc = [tu, den]
+    params_bc = [
+        "Ontime",
+        "IB trước 01:00",
+        tu,
+        den,
+    ]
 
     if hub_chon:
         hub_db = [
@@ -713,11 +715,12 @@ def truy_van_ontime_1am(tu, den, hub_chon=None):
     sql_bc = (
         'SELECT * FROM bao_cao WHERE '
         + " AND ".join(where_bc)
+        + ' ORDER BY "Ngày vận hành", "Thời gian quét"'
     )
 
     con = ket_noi()
     try:
-        df_1am_all = pd.read_sql(
+        df_ontime_1am = pd.read_sql(
             sql_bc,
             con,
             params=params_bc,
@@ -725,21 +728,7 @@ def truy_van_ontime_1am(tu, den, hub_chon=None):
     finally:
         con.close()
 
-    if not df_1am_all.empty and "Kết hợp" in df_1am_all.columns:
-        df_1am_all = df_1am_all.drop_duplicates(
-            subset=["Kết hợp"],
-            keep="last",
-        ).copy()
-
-    if df_1am_all.empty:
-        df_ontime_1am = df_1am_all.copy()
-    else:
-        mask = (
-            df_1am_all["Trạng thái xử lý"].astype(str).str.strip().eq("Ontime")
-            & df_1am_all["IB trước 1h sáng"].astype(str).str.strip().eq("IB trước 01:00")
-        )
-        df_ontime_1am = df_1am_all.loc[mask].copy()
-
+    # KHÔNG dedup bao_cao.
     tong_ontime_1am = len(df_ontime_1am)
 
     ty_le_ontime_1am = (
@@ -759,18 +748,24 @@ def truy_van_ontime_1am(tu, den, hub_chon=None):
 
 def truy_van_ontime_truoc_24h(tu, den, hub_chon=None):
     """
-    IB trước 24H:
-      1) Lấy TOÀN BỘ bao_cao theo Hub + ngày.
-      2) Lọc trùng toàn bộ theo Kết hợp, keep=last.
-      3) Từ đó:
-         - IB = Đã đến = Xe đến trước 24:00
-         - Ontime = IB + Trạng thái xử lý = Ontime
+    BAO_CAO đã sạch từ crawler -> KHÔNG dedup frontend.
+
+    Mẫu số:
+      bao_cao / đúng Hub + ngày / Đã đến = Xe đến trước 24:00
+
+    Tử số:
+      cùng tập trên + Trạng thái xử lý = Ontime.
     """
     where = [
+        '"Đã đến" = %s',
         '"Ngày vận hành" >= %s',
         '"Ngày vận hành" <= %s',
     ]
-    params = [tu, den]
+    params = [
+        "Xe đến trước 24:00",
+        tu,
+        den,
+    ]
 
     if hub_chon:
         hub_db = [
@@ -792,7 +787,7 @@ def truy_van_ontime_truoc_24h(tu, den, hub_chon=None):
 
     con = ket_noi()
     try:
-        df_all = pd.read_sql(
+        df_ib_24h = pd.read_sql(
             sql,
             con,
             params=params,
@@ -800,33 +795,19 @@ def truy_van_ontime_truoc_24h(tu, den, hub_chon=None):
     finally:
         con.close()
 
-    if df_all.empty:
-        return 0, 0, 0, df_all
+    if df_ib_24h.empty:
+        return 0, 0, 0, df_ib_24h
 
-    if "Kết hợp" in df_all.columns:
-        df_all = df_all.drop_duplicates(
-            subset=["Kết hợp"],
-            keep="last",
-        ).copy()
-
-    mask_ib = (
-        df_all["Đã đến"]
-        .astype(str)
-        .str.strip()
-        .eq("Xe đến trước 24:00")
-    )
-
-    df_ib_24h = df_all.loc[mask_ib].copy()
     tong_ib_24h = len(df_ib_24h)
 
-    mask_ontime = (
+    # KHÔNG dedup.
+    df_ontime_24h = df_ib_24h.loc[
         df_ib_24h["Trạng thái xử lý"]
         .astype(str)
         .str.strip()
         .eq("Ontime")
-    )
+    ].copy()
 
-    df_ontime_24h = df_ib_24h.loc[mask_ontime].copy()
     tong_ontime_24h = len(df_ontime_24h)
 
     ty_le_ontime_24h = (
