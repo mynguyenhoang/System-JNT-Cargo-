@@ -513,15 +513,6 @@ def truy_van_bao_cao_ontime(tu, den, hub_chon=None):
             )
 
             # Chỉ đối chiếu tập mã/ngày của BN; không dedup lại Ontime.
-            df_ontime = df_ontime.loc[
-                list(
-                    zip(
-                        df_ontime["Mã chuẩn"],
-                        df_ontime["Ngày vận hành"],
-                    )
-                )
-            ].copy()
-
             keep_mask = [
                 key in bn_keys
                 for key in zip(
