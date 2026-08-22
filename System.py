@@ -651,9 +651,11 @@ def truy_van_ontime_1am(tu, den, hub_chon=None):
     params_bc = ["Ontime", "IB trước 01:00", tu, den]
 
     if hub_chon:
-        placeholders = ",".join(["%s"] * len(hub_chon))
+        # Giao diện dùng HCM / BN / SH DC, nhưng bao_cao lưu HCM HUB / BN HUB / SH DC.
+        hub_db = [HUB_BAO_CAO.get(str(h).strip(), str(h).strip()) for h in hub_chon]
+        placeholders = ",".join(["%s"] * len(hub_db))
         where_bc.append(f'"Hub" IN ({placeholders})')
-        params_bc.extend(list(hub_chon))
+        params_bc.extend(hub_db)
 
     sql_bc = (
         'SELECT * FROM bao_cao WHERE '
