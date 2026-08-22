@@ -432,30 +432,30 @@ def tinh_ontime_xep_hang(hub, tu, den, loai_tuyen_chon=None):
 @st.cache_data(ttl=300, show_spinner="Đang lấy báo cáo Ontime...")
 def truy_van_bao_cao_ontime(tu, den, hub_chon=None):
     """
-    HCM/SHDC: giữ nguyên logic hiện tại.
+    Mẫu số:
+      - Với BN: DISTINCT Mã vận đơn từ quet_hang / BN / Dỡ xuống xe.
+      - HCM/SHDC: giữ nguyên mẫu số bao_cao hiện tại.
 
-    BN:
-      - Mẫu số: DISTINCT Mã vận đơn của quet_hang / BN / Dỡ xuống xe.
-      - Tử số: các dòng bao_cao có Trạng thái xử lý = Ontime trong ngày,
-        nhưng đối chiếu theo Mã vận đơn + Ngày vận hành với đúng tập BN
-        ở mẫu số. Không lọc trùng lại bao_cao.
+    Tử số:
+      - Lấy trực tiếp bao_cao, Trạng thái xử lý = Ontime.
+      - Lọc đúng Hub trong bao_cao.
+      - Không dedup lại tử số.
     """
+    # ---------------- Mẫu số ----------------
     chi_bn = (
         len(hub_chon) == 1
         and str(hub_chon[0]).strip() == "BN"
     )
 
     if chi_bn:
-        # 1) Lấy đúng tập mã vận đơn BN làm mẫu số.
         sql_bn = """
-            SELECT "Mã vận đơn", "Ngày vận hành"
+            SELECT "Mã vận đơn"
             FROM quet_hang
             WHERE "Hub" = %s
               AND "Loại quét" = %s
               AND "Ngày vận hành" >= %s
               AND "Ngày vận hành" <= %s
         """
-
         con = ket_noi()
         try:
             df_bn = pd.read_sql(
@@ -466,78 +466,22 @@ def truy_van_bao_cao_ontime(tu, den, hub_chon=None):
         finally:
             con.close()
 
-        if df_bn.empty:
-            bn_keys = set()
-        else:
-            df_bn["Mã chuẩn"] = _chuan_hoa_ma(df_bn["Mã vận đơn"])
-            df_bn["Ngày vận hành"] = df_bn["Ngày vận hành"].astype(str)
-            df_bn = df_bn[df_bn["Mã chuẩn"] != ""].copy()
-            bn_keys = set(
-                zip(df_bn["Mã chuẩn"], df_bn["Ngày vận hành"])
-            )
-
-        tong_mau_so = len(
-            {mvd for mvd, _ in bn_keys}
+        tong_mau_so = (
+            int(_chuan_hoa_ma(df_bn["Mã vận đơn"]).nunique())
+            if not df_bn.empty
+            else 0
         )
+    else:
+        # Giữ nguyên cách cũ cho HCM / SH DC.
+        tong_mau_so = None
 
-        # 2) Lấy TOÀN BỘ bao_cao theo ngày + trạng thái Ontime.
-        # Không filter Hub ở đây để không làm mất các BN đang có nhãn Hub
-        # khác trong bao_cao.
-        sql_ontime = """
-            SELECT *
-            FROM bao_cao
-            WHERE "Trạng thái xử lý" = %s
-              AND "Ngày vận hành" >= %s
-              AND "Ngày vận hành" <= %s
-            ORDER BY "Ngày vận hành", "Thời gian quét"
-        """
-
-        con = ket_noi()
-        try:
-            df_ontime = pd.read_sql(
-                sql_ontime,
-                con,
-                params=("Ontime", tu, den),
-            )
-        finally:
-            con.close()
-
-        if df_ontime.empty or not bn_keys:
-            df_ontime = df_ontime.iloc[0:0].copy()
-        else:
-            df_ontime["Mã chuẩn"] = _chuan_hoa_ma(
-                df_ontime["Mã vận đơn"]
-            )
-            df_ontime["Ngày vận hành"] = (
-                df_ontime["Ngày vận hành"].astype(str)
-            )
-
-            # Chỉ đối chiếu tập mã/ngày của BN; không dedup lại Ontime.
-            keep_mask = [
-                key in bn_keys
-                for key in zip(
-                    df_ontime["Mã chuẩn"],
-                    df_ontime["Ngày vận hành"],
-                )
-            ]
-            df_ontime = df_ontime.loc[keep_mask].copy()
-            df_ontime = df_ontime.drop(columns=["Mã chuẩn"])
-
-        df_all = df_ontime.copy()
-        df_ontime.attrs["tong_mau_so"] = tong_mau_so
-        return df_all, df_ontime
-
-    # ---------------- HCM / SH DC: giữ nguyên logic hiện tại ----------------
-    dieu_kien = []
-    params = []
-
-    if tu:
-        dieu_kien.append('"Ngày vận hành" >= %s')
-        params.append(tu)
-
-    if den:
-        dieu_kien.append('"Ngày vận hành" <= %s')
-        params.append(den)
+    # ---------------- Tử số ----------------
+    dieu_kien = [
+        '"Trạng thái xử lý" = %s',
+        '"Ngày vận hành" >= %s',
+        '"Ngày vận hành" <= %s',
+    ]
+    params = ["Ontime", tu, den]
 
     if hub_chon:
         hub_db = [
@@ -555,25 +499,20 @@ def truy_van_bao_cao_ontime(tu, den, hub_chon=None):
 
     con = ket_noi()
     try:
-        df_all = pd.read_sql(sql, con, params=params)
+        df_ontime = pd.read_sql(sql, con, params=params)
     finally:
         con.close()
 
-    if df_all.empty:
-        df_all.attrs["tong_mau_so"] = 0
-        return df_all, df_all.copy()
+    # Không drop_duplicates ở đây.
+    if tong_mau_so is None:
+        tong_mau_so = len(df_ontime)
 
-    if "Kết hợp" in df_all.columns:
-        df_all = df_all.drop_duplicates(
-            subset=["Kết hợp"],
-            keep="last",
-        ).copy()
+    # df_all chỉ phục vụ hiển thị; với BN ta không dùng nó để tính tử số.
+    df_all = df_ontime.copy()
+    df_ontime.attrs["tong_mau_so"] = tong_mau_so
 
-    trang_thai = df_all["Trạng thái xử lý"].astype(str).str.strip()
-    df_ontime = df_all.loc[trang_thai.eq("Ontime")].copy()
-
-    df_ontime.attrs["tong_mau_so"] = len(df_all)
     return df_all, df_ontime
+
 
 
 
