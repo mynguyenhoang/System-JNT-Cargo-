@@ -74,7 +74,23 @@ if not DB_URL:
 
 FEISHU_APP_ID             = st.secrets.get("FEISHU_APP_ID", "cli_a9456e412bb89bce")
 FEISHU_APP_SECRET         = st.secrets.get("FEISHU_APP_SECRET", "")
-FEISHU_SPREADSHEET_TOKEN  = st.secrets.get("FEISHU_SPREADSHEET_TOKEN", "LXeHseOdthPKm0tnpChcjonKnkf")
+
+# Sheet COT dùng trực tiếp để tính Ontime xếp hàng.
+# Có thể ghi đè bằng Secrets; mặc định dùng đúng sheet COT của bộ cào JFS.
+FEISHU_COT_SPREADSHEET_TOKEN = st.secrets.get(
+    "FEISHU_COT_SPREADSHEET_TOKEN",
+    "PhCAsHyCXh7BEStPRSwcxHMCnKe"
+)
+FEISHU_COT_SHEET_ID = st.secrets.get(
+    "FEISHU_COT_SHEET_ID",
+    "nJppxx"
+)
+
+# Token này chỉ dùng cho các chức năng Feishu cũ khác (nếu có).
+FEISHU_SPREADSHEET_TOKEN  = st.secrets.get(
+    "FEISHU_SPREADSHEET_TOKEN",
+    "LXeHseOdthPKm0tnpChcjonKnkf"
+)
 
 
 def ket_noi():
@@ -214,20 +230,140 @@ def truy_van(table, date_col, hub_chon, loai_chon, tu, den, tim):
 
 
 @st.cache_data(ttl=300, show_spinner="Đang tính Ontime xếp hàng...")
+@st.cache_data(ttl=300, show_spinner="Đang đọc COT từ Feishu...")
+def lay_cutoff_feishu():
+    """
+    Đọc giờ COT trực tiếp từ Sheet COT trên Feishu.
+    Không dùng bảng cutoff trên Supabase nữa.
+
+    Trả về DataFrame gồm:
+      - Bưu cục
+      - OB
+      - Hub (nếu sheet có cột Hub)
+    """
+    token = _feishu_token()
+    if not token:
+        raise RuntimeError("Không lấy được Feishu token để đọc Sheet COT.")
+
+    url = (
+        f"https://open.feishu.cn/open-apis/sheets/v2/spreadsheets/"
+        f"{FEISHU_COT_SPREADSHEET_TOKEN}/values/"
+        f"{FEISHU_COT_SHEET_ID}!A1:Z10000"
+        f"?valueRenderOption=ToString"
+    )
+
+    r = requests.get(
+        url,
+        headers=_feishu_headers(token),
+        timeout=30
+    )
+    data = r.json()
+
+    if data.get("code") != 0:
+        raise RuntimeError(
+            f"Không đọc được Sheet COT Feishu: {data.get('msg')}"
+        )
+
+    values = data.get("data", {}).get("valueRange", {}).get("values", [])
+    if not values:
+        raise RuntimeError("Sheet COT Feishu không có dữ liệu.")
+
+    header = [str(x).strip() for x in values[0]]
+
+    bc_idx = -1
+    ob_idx = -1
+    hub_idx = -1
+
+    for i, val in enumerate(header):
+        val_lower = val.lower()
+
+        if (
+            "bưu cục xuất" in val_lower
+            or "bưu cục và hub" in val_lower
+            or ("bưu cục" in val_lower and bc_idx == -1)
+        ):
+            bc_idx = i
+
+        if val_lower == "ob":
+            ob_idx = i
+
+        if "hub" in val_lower:
+            hub_idx = i
+
+    # Fallback giống logic bộ cào JFS:
+    if ob_idx == -1:
+        for i, val in enumerate(header):
+            if "ob" in val.lower():
+                ob_idx = i
+                break
+
+    if bc_idx == -1 or ob_idx == -1:
+        raise RuntimeError(
+            f"Không tìm thấy cột Bưu cục/OB trong Sheet COT. "
+            f"Header hiện tại: {header}"
+        )
+
+    rows = []
+    for row in values[1:]:
+        def val_at(idx):
+            if idx < 0 or idx >= len(row) or row[idx] is None:
+                return ""
+            return str(row[idx]).strip()
+
+        bưu_cuc = val_at(bc_idx)
+        ob = val_at(ob_idx)
+        hub_sheet = val_at(hub_idx)
+
+        if not bưu_cuc or not ob:
+            continue
+
+        # Chuẩn hóa giờ COT về HH:MM:SS.
+        if "." in ob and ob.replace(".", "").isdigit():
+            try:
+                val_float = float(ob)
+                if 0 <= val_float <= 1:
+                    total_seconds = round(val_float * 86400)
+                    h, rem = divmod(total_seconds, 3600)
+                    m, s = divmod(rem, 60)
+                    ob = f"{int(h):02d}:{int(m):02d}:{int(s):02d}"
+            except Exception:
+                pass
+        elif ":" in ob and len(ob.split(":")) == 2:
+            ob += ":00"
+
+        rows.append({
+            "Bưu cục": bưu_cuc,
+            "OB": ob,
+            "Hub": hub_sheet,
+        })
+
+    if not rows:
+        raise RuntimeError("Sheet COT không có dòng COT hợp lệ.")
+
+    return pd.DataFrame(rows)
+
+
 def tinh_ontime_xep_hang(hub, tu, den, loai_tuyen_chon=None):
-    con = ket_noi()
+    # COT được đọc trực tiếp từ Sheet COT Feishu,
+    # không còn phụ thuộc bảng cutoff trên Supabase.
     try:
-        cut = pd.read_sql('SELECT "Hub" AS hub_cot, "Bưu cục", "OB" FROM cutoff', con)
-    except Exception:
-        con.close()
-        return None, "Chưa có bảng cutoff trên Supabase."
+        cut = lay_cutoff_feishu()
+    except Exception as e:
+        return None, f"Không đọc được COT từ Feishu: {e}"
 
     bo_phan = TEN_BO_PHAN_XEP.get(hub, "")
-    cut["uu_tien"] = (cut["hub_cot"].astype(str).str.strip() == bo_phan).astype(int)
-    cut = (
-        cut.sort_values("uu_tien", ascending=False)
-        .drop_duplicates(subset="Bưu cục")[["Bưu cục", "OB"]]
-    )
+
+    # Nếu Sheet COT có cột Hub thì ưu tiên đúng Hub đang truy vấn,
+    # giữ nguyên nguyên tắc ưu tiên Hub của logic cũ trên Supabase.
+    if "Hub" in cut.columns and cut["Hub"].astype(str).str.strip().ne("").any():
+        cut["uu_tien"] = (
+            cut["Hub"].astype(str).str.strip() == bo_phan
+        ).astype(int)
+        cut = cut.sort_values("uu_tien", ascending=False)
+
+    cut = cut.drop_duplicates(subset="Bưu cục")[["Bưu cục", "OB"]]
+
+    con = ket_noi()
 
     sql = 'SELECT * FROM xep_hang WHERE "Bộ phận xếp hàng" = %s'
     params = [bo_phan]
