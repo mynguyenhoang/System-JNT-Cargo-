@@ -984,7 +984,7 @@ with tab_bao_cao_ontime:
         except Exception as e:
             st.error(f"Lỗi truy vấn báo cáo Ontime: {e}")
 
-    if "bc_ontime_all" in st.session_state:
+    if "bc_ontime_mau_so" in st.session_state and "bc_ontime_detail" in st.session_state:
         tong_mau_so = st.session_state["bc_ontime_mau_so"]
         df_bc_ontime = st.session_state["bc_ontime_detail"]
         tong_ontime = len(df_bc_ontime)
