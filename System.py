@@ -573,6 +573,115 @@ def day_len_bao_cao_ontime(sheet_name, df_all, df_ontime):
     )
 
 
+@st.cache_data(ttl=300, show_spinner="Đang tính Ontime 1AM...")
+def truy_van_ontime_1am(tu, den, hub_chon=None):
+    """
+    Ontime 1AM.
+
+    Mẫu số:
+      - Bảng quet_hang
+      - Loại quét = Dỡ xuống xe
+      - Scan trước 01:00 của ngày kế tiếp so với Ngày vận hành
+      - Đếm đơn duy nhất theo Mã vận đơn + Ngày vận hành
+
+    Tử số:
+      - Bảng bao_cao
+      - Trạng thái xử lý = Ontime
+      - IB trước 1h sáng = IB trước 01:00
+    """
+    where_parts = [
+        '"Loại quét" = %s',
+        '"Ngày vận hành" >= %s',
+        '"Ngày vận hành" <= %s',
+    ]
+    params = ["Dỡ xuống xe", tu, den]
+
+    if hub_chon:
+        placeholders = ",".join(["%s"] * len(hub_chon))
+        where_parts.append(f'"Hub" IN ({placeholders})')
+        params.extend(list(hub_chon))
+
+    sql_ib = (
+        'SELECT * FROM quet_hang WHERE '
+        + " AND ".join(where_parts)
+        + ' ORDER BY "Ngày vận hành", "Thời gian quét"'
+    )
+
+    con = ket_noi()
+    try:
+        df_ib = pd.read_sql(sql_ib, con, params=params)
+    finally:
+        con.close()
+
+    if not df_ib.empty:
+        df_ib["Mã chuẩn"] = _chuan_hoa_ma(df_ib["Mã vận đơn"])
+        df_ib["Thời gian quét_dt"] = pd.to_datetime(
+            df_ib["Thời gian quét"], errors="coerce"
+        )
+        df_ib["Ngày vận hành_dt"] = pd.to_datetime(
+            df_ib["Ngày vận hành"], errors="coerce"
+        )
+
+        # 01:00 của ngày kế tiếp theo Ngày vận hành.
+        df_ib["gioi_han_1am"] = (
+            df_ib["Ngày vận hành_dt"]
+            + pd.Timedelta(days=1, hours=1)
+        )
+
+        df_ib = df_ib[
+            df_ib["Thời gian quét_dt"] < df_ib["gioi_han_1am"]
+        ].copy()
+
+        df_ib = (
+            df_ib[df_ib["Mã chuẩn"] != ""]
+            .drop_duplicates(
+                subset=["Mã chuẩn", "Ngày vận hành"],
+                keep="last",
+            )
+        )
+
+    tong_ib_1am = len(df_ib)
+
+    where_bc = [
+        '"Trạng thái xử lý" = %s',
+        '"IB trước 1h sáng" = %s',
+        '"Ngày vận hành" >= %s',
+        '"Ngày vận hành" <= %s',
+    ]
+    params_bc = ["Ontime", "IB trước 01:00", tu, den]
+
+    if hub_chon:
+        placeholders = ",".join(["%s"] * len(hub_chon))
+        where_bc.append(f'"Hub" IN ({placeholders})')
+        params_bc.extend(list(hub_chon))
+
+    sql_bc = (
+        'SELECT * FROM bao_cao WHERE '
+        + " AND ".join(where_bc)
+        + ' ORDER BY "Ngày vận hành", "Thời gian quét"'
+    )
+
+    con = ket_noi()
+    try:
+        df_ontime_1am = pd.read_sql(sql_bc, con, params=params_bc)
+    finally:
+        con.close()
+
+    if not df_ontime_1am.empty and "Kết hợp" in df_ontime_1am.columns:
+        df_ontime_1am = df_ontime_1am.drop_duplicates(
+            subset=["Kết hợp"],
+            keep="last",
+        ).copy()
+
+    tong_ontime_1am = len(df_ontime_1am)
+    ty_le_ontime_1am = (
+        tong_ontime_1am / tong_ib_1am * 100
+        if tong_ib_1am else 0
+    )
+
+    return tong_ib_1am, tong_ontime_1am, ty_le_ontime_1am, df_ontime_1am
+
+
 @st.cache_data(ttl=300, show_spinner="Đang tạo file Excel...")
 def xuat_excel(df_dict):
     buf = io.BytesIO()
@@ -943,6 +1052,33 @@ with tab_bao_cao_ontime:
             f"= {ty_le_ontime:.2f}%"
         )
 
+        # ── KPI: Ontime 1AM ──
+        try:
+            (
+                tong_ib_1am,
+                tong_ontime_1am,
+                ty_le_ontime_1am,
+                df_ontime_1am,
+            ) = truy_van_ontime_1am(
+                st.session_state.get("bc_ontime_tu", ""),
+                st.session_state.get("bc_ontime_den", ""),
+                st.session_state.get("bc_ontime_hub", ()),
+            )
+
+            divider_label("Ontime 1AM")
+
+            c1, c2, c3 = st.columns(3)
+            c1.metric("Tổng đơn IB trước 1AM", f"{tong_ib_1am:,}")
+            c2.metric("Tổng đơn Ontime 1AM", f"{tong_ontime_1am:,}")
+            c3.metric("Tỷ lệ Ontime 1AM", f"{ty_le_ontime_1am:.2f}%")
+
+            st.caption(
+                f"Công thức: {tong_ontime_1am:,} / {tong_ib_1am:,} × 100 "
+                f"= {ty_le_ontime_1am:.2f}%"
+            )
+        except Exception as e:
+            st.error(f"Lỗi tính Ontime 1AM: {e}")
+
         divider_label(
             f"Tất cả đơn Ontime "
             f"({min(len(df_bc_ontime), SO_DONG_HIEN_THI):,} / "
@@ -955,36 +1091,10 @@ with tab_bao_cao_ontime:
             height=440,
         )
 
-        c1, c2 = st.columns(2)
-
-        with c1:
-            st.download_button(
-                f"Tải Excel — Tất cả đơn Ontime ({len(df_bc_ontime):,})",
-                xuat_excel({"Ontime": df_bc_ontime}),
-                file_name="bao_cao_ontime.xlsx",
-                use_container_width=True,
-                type="primary",
-            )
-
-        with c2:
-            if st.button(
-                "Đẩy báo cáo Ontime lên Feishu",
-                use_container_width=True,
-                type="primary",
-            ):
-                try:
-                    day_len_bao_cao_ontime(
-                        "Báo cáo Ontime",
-                        df_bc_all,
-                        df_bc_ontime,
-                    )
-
-                    st.success(
-                        f"Đã đẩy {len(df_bc_ontime):,} đơn Ontime "
-                        f"vào Sheet 'Báo cáo Ontime'."
-                    )
-
-                except Exception as e:
-                    st.error(
-                        f"Lỗi đẩy báo cáo Ontime lên Feishu: {e}"
-                    )
+        st.download_button(
+            f"Tải Excel — Tất cả đơn Ontime ({len(df_bc_ontime):,})",
+            xuat_excel({"Ontime": df_bc_ontime}),
+            file_name="bao_cao_ontime.xlsx",
+            use_container_width=True,
+            type="primary",
+        )
