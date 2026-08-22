@@ -537,8 +537,14 @@ def truy_van_bao_cao_ontime(tu, den, hub_chon=None):
     finally:
         con.close()
 
-    # bao_cao đã được xử lý trùng ở pipeline.
-    # TUYỆT ĐỐI không drop_duplicates lại ở frontend.
+    # TEST: khôi phục đúng cách lọc trùng Ontime như logic frontend ban đầu.
+    # Dùng Kết hợp và giữ bản ghi cuối cùng.
+    if not df_ontime.empty and "Kết hợp" in df_ontime.columns:
+        df_ontime = df_ontime.drop_duplicates(
+            subset=["Kết hợp"],
+            keep="last",
+        ).copy()
+
     df_all = df_ontime.copy()
     df_ontime.attrs["tong_mau_so"] = tong_mau_so
 
