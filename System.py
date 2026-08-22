@@ -73,7 +73,7 @@ if not DB_URL:
     st.stop()
 
 FEISHU_APP_ID             = st.secrets.get("FEISHU_APP_ID", "cli_a9456e412bb89bce")
-FEISHU_APP_SECRET         = st.secrets.get("FEISHU_APP_SECRET", "BwSAuHHsv2woEdIGTqJoKboH6i1i7qBB")
+FEISHU_APP_SECRET         = st.secrets.get("FEISHU_APP_SECRET", "")
 FEISHU_SPREADSHEET_TOKEN  = st.secrets.get("FEISHU_SPREADSHEET_TOKEN", "LXeHseOdthPKm0tnpChcjonKnkf")
 
 
@@ -407,9 +407,11 @@ with tab_du_lieu:
         tu = c4.date_input("Từ ngày", value=_ngay(ngay_min) or datetime.date.today(), format="YYYY-MM-DD")
         den = c5.date_input("Đến ngày", value=_ngay(ngay_max) or datetime.date.today(), format="YYYY-MM-DD")
         tim = c6.text_input("Tìm mã vận đơn").strip()
-        st.form_submit_button("Truy vấn", type="primary", use_container_width=True)
+        truy_van_clicked = st.form_submit_button(
+            "Truy vấn", type="primary", use_container_width=True
+        )
 
-    if st.session_state.get("FormSubmitter:bo_loc-Truy van"):
+    if truy_van_clicked:
         st.session_state["kq"] = truy_van(
             table, date_col, tuple(hub_chon), tuple(loai_chon),
             str(tu) if tu else "", str(den) if den else "", tim,
@@ -492,9 +494,11 @@ with tab_ontime_xh:
             list(LOAI_TUYEN_NHAN.values()),
             placeholder="Tất cả (Tuyến chính + Tuyến phụ)",
         )
-        st.form_submit_button("Truy vấn", type="primary", use_container_width=True)
+        truy_van_xh_clicked = st.form_submit_button(
+            "Truy vấn", type="primary", use_container_width=True
+        )
 
-    if st.session_state.get("FormSubmitter:ontime_xh_form-Truy van"):
+    if truy_van_xh_clicked:
         loai_tuyen_thuc = tuple(
             NHAN_TOI_LOAI_TUYEN.get(nhan, nhan) for nhan in loai_tuyen_xh
         )
