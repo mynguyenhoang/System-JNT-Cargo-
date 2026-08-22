@@ -778,6 +778,79 @@ def truy_van_ontime_1am(tu, den, hub_chon=None):
     return tong_ib_1am, tong_ontime_1am, ty_le_ontime_1am, df_ontime_1am
 
 
+
+def truy_van_ontime_truoc_24h(tu, den, hub_chon=None):
+    """
+    KPI IB trước 24H.
+
+    Mẫu số:
+      - bao_cao
+      - Đã đến = "Xe đến trước 24:00"
+
+    Tử số:
+      - Đã đến = "Xe đến trước 24:00"
+      - Trạng thái xử lý = "Ontime"
+
+    bao_cao đã là dữ liệu đã lọc trùng nên không dedup lại.
+    """
+    dieu_kien = [
+        '"Đã đến" = %s',
+        '"Ngày vận hành" >= %s',
+        '"Ngày vận hành" <= %s',
+    ]
+    params = ["Xe đến trước 24:00", tu, den]
+
+    if hub_chon:
+        hub_db = [
+            HUB_BAO_CAO.get(str(h).strip(), str(h).strip())
+            for h in hub_chon
+        ]
+        placeholders = ",".join(["%s"] * len(hub_db))
+        dieu_kien.append(f'"Hub" IN ({placeholders})')
+        params.extend(hub_db)
+
+    sql = (
+        'SELECT * FROM bao_cao WHERE '
+        + " AND ".join(dieu_kien)
+        + ' ORDER BY "Ngày vận hành", "Thời gian quét"'
+    )
+
+    con = ket_noi()
+    try:
+        df_ib_24h = pd.read_sql(sql, con, params=params)
+    finally:
+        con.close()
+
+    if df_ib_24h.empty:
+        return 0, 0, 0, df_ib_24h
+
+    # Không lọc trùng lại.
+    tong_ib_24h = len(df_ib_24h)
+
+    trang_thai = (
+        df_ib_24h["Trạng thái xử lý"]
+        .astype(str)
+        .str.strip()
+    )
+    df_ontime_24h = df_ib_24h.loc[
+        trang_thai.eq("Ontime")
+    ].copy()
+
+    tong_ontime_24h = len(df_ontime_24h)
+
+    ty_le_ontime_24h = (
+        tong_ontime_24h / tong_ib_24h * 100
+        if tong_ib_24h else 0
+    )
+
+    return (
+        tong_ib_24h,
+        tong_ontime_24h,
+        ty_le_ontime_24h,
+        df_ontime_24h,
+    )
+
+
 @st.cache_data(ttl=300, show_spinner="Đang tạo file Excel...")
 def xuat_excel(df_dict):
     buf = io.BytesIO()
@@ -1191,6 +1264,34 @@ with tab_bao_cao_ontime:
             )
         except Exception as e:
             st.error(f"Lỗi tính Ontime 1AM: {e}")
+
+        # ── KPI: Ontime trước 24H ──
+        try:
+            (
+                tong_ib_24h,
+                tong_ontime_24h,
+                ty_le_ontime_24h,
+                df_ontime_24h,
+            ) = truy_van_ontime_truoc_24h(
+                st.session_state.get("bc_ontime_tu", ""),
+                st.session_state.get("bc_ontime_den", ""),
+                st.session_state.get("bc_ontime_hub", ()),
+            )
+
+            divider_label("IB trước 24H")
+
+            c1, c2, c3 = st.columns(3)
+            c1.metric("Tổng đơn IB trước 24H", f"{tong_ib_24h:,}")
+            c2.metric("Tổng đơn Ontime trước 24H", f"{tong_ontime_24h:,}")
+            c3.metric("Tỷ lệ Ontime trước 24H", f"{ty_le_ontime_24h:.2f}%")
+
+            st.caption(
+                f"Công thức: {tong_ontime_24h:,} / {tong_ib_24h:,} × 100 "
+                f"= {ty_le_ontime_24h:.2f}%"
+            )
+
+        except Exception as e:
+            st.error(f"Lỗi tính Ontime trước 24H: {e}")
 
         divider_label(
             f"Tất cả đơn Ontime "
