@@ -520,19 +520,8 @@ def truy_van_bao_cao_ontime(tu, den, hub_chon=None):
     trang_thai = df_all["Trạng thái xử lý"].astype(str).str.strip()
     df_ontime = df_all.loc[trang_thai.eq("Ontime")].copy()
 
-    # BN: chỉ đếm Ontime của những mã vận đơn thực sự thuộc mẫu số
-    # DISTINCT từ quet_hang. Không để bao_cao có thêm mã ngoài tập này.
-    if chi_bn and not df_ontime.empty:
-        df_ontime["Mã chuẩn"] = _chuan_hoa_ma(df_ontime["Mã vận đơn"])
-        df_ontime = df_ontime[
-            df_ontime["Mã chuẩn"].isin(bn_mvd)
-        ].copy()
-        df_ontime = df_ontime.drop_duplicates(
-            subset=["Mã chuẩn"],
-            keep="last",
-        )
-        df_ontime = df_ontime.drop(columns=["Mã chuẩn"])
-
+    # Ontime trong bao_cao đã được lọc trùng từ backend.
+    # Không lọc trùng lại ở đây. Chỉ mẫu số Dỡ xuống xe mới cần xử lý.
     df_ontime.attrs["tong_mau_so"] = tong_mau_so
     return df_all, df_ontime
 
