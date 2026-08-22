@@ -429,7 +429,6 @@ def tinh_ontime_xep_hang(hub, tu, den, loai_tuyen_chon=None):
 
 
 
-@st.cache_data(ttl=300, show_spinner="Đang lấy báo cáo Ontime...")
 def truy_van_bao_cao_ontime(tu, den, hub_chon=None):
     """
     Mẫu số:
@@ -607,7 +606,6 @@ def day_len_bao_cao_ontime(sheet_name, df_all, df_ontime):
     )
 
 
-@st.cache_data(ttl=300, show_spinner="Đang tính Ontime 1AM...")
 def truy_van_ontime_1am(tu, den, hub_chon=None):
     """
     Ontime 1AM:
@@ -1053,6 +1051,18 @@ with tab_bao_cao_ontime:
         )
 
     if truy_van_bc_clicked:
+        # Xóa kết quả cũ trước khi truy vấn để không hiển thị nhầm
+        # dữ liệu Hub/ngày của lần truy vấn trước.
+        for _k in [
+            "bc_ontime_all",
+            "bc_ontime_detail",
+            "bc_ontime_mau_so",
+            "bc_ontime_tu",
+            "bc_ontime_den",
+            "bc_ontime_hub",
+        ]:
+            st.session_state.pop(_k, None)
+
         try:
             df_bc_all, df_bc_ontime = truy_van_bao_cao_ontime(
                 str(tu_bc) if tu_bc else "",
@@ -1060,8 +1070,8 @@ with tab_bao_cao_ontime:
                 tuple(hub_bc),
             )
 
-            st.session_state["bc_ontime_all"] = df_bc_all
-            st.session_state["bc_ontime_detail"] = df_bc_ontime
+            st.session_state["bc_ontime_all"] = df_bc_all.reset_index(drop=True)
+            st.session_state["bc_ontime_detail"] = df_bc_ontime.reset_index(drop=True)
             st.session_state["bc_ontime_mau_so"] = df_bc_ontime.attrs.get(
                 "tong_mau_so",
                 len(df_bc_all),
