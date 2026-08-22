@@ -1233,11 +1233,6 @@ with tab_bao_cao_ontime:
             f"{ty_le_ontime:.2f}%",
         )
 
-        st.caption(
-            f"Công thức: {tong_ontime:,} / {tong_mau_so:,} × 100 "
-            f"= {ty_le_ontime:.2f}%"
-        )
-
         # ── KPI: Ontime 1AM ──
         try:
             (
@@ -1257,11 +1252,6 @@ with tab_bao_cao_ontime:
             c1.metric("Tổng đơn IB trước 1AM", f"{tong_ib_1am:,}")
             c2.metric("Tổng đơn Ontime 1AM", f"{tong_ontime_1am:,}")
             c3.metric("Tỷ lệ Ontime 1AM", f"{ty_le_ontime_1am:.2f}%")
-
-            st.caption(
-                f"Công thức: {tong_ontime_1am:,} / {tong_ib_1am:,} × 100 "
-                f"= {ty_le_ontime_1am:.2f}%"
-            )
         except Exception as e:
             st.error(f"Lỗi tính Ontime 1AM: {e}")
 
@@ -1284,11 +1274,6 @@ with tab_bao_cao_ontime:
             c1.metric("Tổng đơn IB trước 24H", f"{tong_ib_24h:,}")
             c2.metric("Tổng đơn Ontime trước 24H", f"{tong_ontime_24h:,}")
             c3.metric("Tỷ lệ Ontime trước 24H", f"{ty_le_ontime_24h:.2f}%")
-
-            st.caption(
-                f"Công thức: {tong_ontime_24h:,} / {tong_ib_24h:,} × 100 "
-                f"= {ty_le_ontime_24h:.2f}%"
-            )
 
         except Exception as e:
             st.error(f"Lỗi tính Ontime trước 24H: {e}")
