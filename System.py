@@ -104,6 +104,13 @@ BANG = {
 
 TEN_BO_PHAN_XEP = {"SHDC": "SH DC", "HCM": "HCM HUB", "BN": "BN HUB"}
 
+# Tên Hub trên giao diện -> tên Hub thực tế trong bảng bao_cao Supabase.
+HUB_BAO_CAO = {
+    "HCM": "HCM HUB",
+    "BN": "BN HUB",
+    "SH DC": "SH DC",
+}
+
 LOAI_TUYEN_EN = {"Tuyến chính": "Linehaul", "Tuyến phụ": "Shuttle"}
 LOAI_TUYEN_NHAN = {
     "Tuyến chính": "Tuyến chính (Linehaul)",
@@ -444,9 +451,11 @@ def truy_van_bao_cao_ontime(tu, den, hub_chon=None):
         params.append(den)
 
     if hub_chon:
-        placeholders = ",".join(["%s"] * len(hub_chon))
+        # Giao diện dùng HCM / BN / SH DC, nhưng bao_cao lưu HCM HUB / BN HUB / SH DC.
+        hub_db = [HUB_BAO_CAO.get(str(h).strip(), str(h).strip()) for h in hub_chon]
+        placeholders = ",".join(["%s"] * len(hub_db))
         dieu_kien.append(f'"Hub" IN ({placeholders})')
-        params.extend(list(hub_chon))
+        params.extend(hub_db)
 
     sql = 'SELECT * FROM bao_cao'
     if dieu_kien:
