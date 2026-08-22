@@ -537,7 +537,7 @@ def _feishu_ghi_bao_cao_ontime(token, sheet_name, tong_mau_so,
 
     kpi_rows = [
         ["Chỉ tiêu", "Giá trị", "Tỷ lệ"],
-        ["Tổng đơn Dỡ xuống xe sau lọc trùng", int(tong_mau_so), "100.00%"],
+        ["Tổng đơn Dỡ xuống xe", int(tong_mau_so), "100.00%"],
         ["Tổng đơn Ontime", int(tong_ontime), f"{ty_le_ontime:.2f}%"],
         [],
         ["CHI TIẾT TẤT CẢ ĐƠN ONTIME"],
@@ -1195,7 +1195,7 @@ with tab_bao_cao_ontime:
         c1, c2, c3 = st.columns(3)
 
         c1.metric(
-            "Tổng đơn Dỡ xuống xe sau lọc trùng",
+            "Tổng đơn Dỡ xuống xe",
             f"{tong_mau_so:,}",
         )
         c2.metric(
