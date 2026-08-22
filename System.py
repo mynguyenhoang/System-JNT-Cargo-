@@ -442,10 +442,9 @@ def _lay_ib_da_loc_trung(tu, den, hub_chon=None):
     params = ["Dỡ xuống xe", tu, den]
 
     if hub_chon:
-        hub_db = [
-            HUB_BAO_CAO.get(str(h).strip(), str(h).strip())
-            for h in hub_chon
-        ]
+        # quet_hang lưu Hub dạng raw: BN / HCM / SHDC.
+        # Chỉ bao_cao mới dùng tên hiển thị: BN HUB / HCM HUB / SH DC.
+        hub_db = [str(h).strip() for h in hub_chon]
         placeholders = ",".join(["%s"] * len(hub_db))
         where_parts.append(f'"Hub" IN ({placeholders})')
         params.extend(hub_db)
