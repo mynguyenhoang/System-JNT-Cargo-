@@ -429,84 +429,22 @@ def tinh_ontime_xep_hang(hub, tu, den, loai_tuyen_chon=None):
 
 
 
-@st.cache_data(ttl=300, show_spinner="Đang chuẩn hóa IB cho BN...")
-def _lay_ib_bn_da_loc_trung(tu, den):
-    # Chỉ dùng để hiệu chỉnh mẫu số BN.
-    # Nguồn quet_hang, Hub=BN, Dỡ xuống xe, dedup theo logic backend 15 phút.
-    sql = '''
-        SELECT "Mã vận đơn", "Thời gian quét", "Ngày vận hành"
-        FROM quet_hang
-        WHERE "Hub" = %s
-          AND "Loại quét" = %s
-          AND "Ngày vận hành" >= %s
-          AND "Ngày vận hành" <= %s
-        ORDER BY "Mã vận đơn", "Ngày vận hành", "Thời gian quét"
-    '''
-    con = ket_noi()
-    try:
-        df = pd.read_sql(
-            sql,
-            con,
-            params=("BN", "Dỡ xuống xe", tu, den),
-        )
-    finally:
-        con.close()
-
-    if df.empty:
-        return 0
-
-    df["Mã chuẩn"] = _chuan_hoa_ma(df["Mã vận đơn"])
-    df["Thời gian quét_dt"] = pd.to_datetime(
-        df["Thời gian quét"], errors="coerce"
-    )
-    df = df[df["Mã chuẩn"] != ""].copy()
-
-    kept = []
-    for _, group in df.groupby(
-        ["Mã chuẩn", "Ngày vận hành"],
-        sort=False,
-        dropna=False,
-    ):
-        group = group.sort_values("Thời gian quét_dt")
-        chain_kept = [group.iloc[0]]
-
-        for i in range(1, len(group)):
-            nxt = group.iloc[i]
-            prev = chain_kept[-1]
-            dt_prev = prev["Thời gian quét_dt"]
-            dt_next = nxt["Thời gian quét_dt"]
-
-            gap_minutes = None
-            if pd.notna(dt_prev) and pd.notna(dt_next):
-                gap_minutes = abs(
-                    (dt_next - dt_prev).total_seconds()
-                ) / 60.0
-
-            if gap_minutes is not None and gap_minutes <= 15:
-                chain_kept[-1] = nxt
-            else:
-                chain_kept.append(nxt)
-
-        kept.extend(chain_kept)
-
-    return len(kept)
-
-
-
 @st.cache_data(ttl=300, show_spinner="Đang lấy báo cáo Ontime...")
 def truy_van_bao_cao_ontime(tu, den, hub_chon=None):
-    # Giữ nguyên HCM/SHDC.
-    # Chỉ BN dùng mẫu số quet_hang + dedup 15 phút.
-
-    dieu_kien = []
+    """
+    Giữ nguyên logic Ontime hiện tại.
+    Chỉ sửa mẫu số khi chỉ chọn BN.
+    Tử số Ontime không thay đổi.
+    """
+    where = []
     params = []
 
     if tu:
-        dieu_kien.append('"Ngày vận hành" >= %s')
+        where.append('"Ngày vận hành" >= %s')
         params.append(tu)
 
     if den:
-        dieu_kien.append('"Ngày vận hành" <= %s')
+        where.append('"Ngày vận hành" <= %s')
         params.append(den)
 
     if hub_chon:
@@ -514,13 +452,13 @@ def truy_van_bao_cao_ontime(tu, den, hub_chon=None):
             HUB_BAO_CAO.get(str(h).strip(), str(h).strip())
             for h in hub_chon
         ]
-        placeholders = ",".join(["%s"] * len(hub_db))
-        dieu_kien.append(f'"Hub" IN ({placeholders})')
+        ph = ",".join(["%s"] * len(hub_db))
+        where.append(f'"Hub" IN ({ph})')
         params.extend(hub_db)
 
-    sql = 'SELECT * FROM bao_cao'
-    if dieu_kien:
-        sql += ' WHERE ' + ' AND '.join(dieu_kien)
+    sql = "SELECT * FROM bao_cao"
+    if where:
+        sql += " WHERE " + " AND ".join(where)
     sql += ' ORDER BY "Ngày vận hành", "Thời gian quét"'
 
     con = ket_noi()
@@ -539,14 +477,76 @@ def truy_van_bao_cao_ontime(tu, den, hub_chon=None):
             keep="last",
         ).copy()
 
+    # CHỈ BN: tính lại mẫu số từ quet_hang.
     chi_bn = (
         len(hub_chon) == 1
         and str(hub_chon[0]).strip() == "BN"
     )
 
     if chi_bn:
-        tong_mau_so = _lay_ib_bn_da_loc_trung(tu, den)
+        sql_bn = """
+            SELECT "Mã vận đơn", "Thời gian quét", "Ngày vận hành"
+            FROM quet_hang
+            WHERE "Hub" = %s
+              AND "Loại quét" = %s
+              AND "Ngày vận hành" >= %s
+              AND "Ngày vận hành" <= %s
+            ORDER BY "Mã vận đơn", "Ngày vận hành", "Thời gian quét"
+        """
+
+        con = ket_noi()
+        try:
+            df_bn = pd.read_sql(
+                sql_bn,
+                con,
+                params=("BN", "Dỡ xuống xe", tu, den),
+            )
+        finally:
+            con.close()
+
+        if df_bn.empty:
+            tong_mau_so = 0
+        else:
+            df_bn["Mã chuẩn"] = _chuan_hoa_ma(df_bn["Mã vận đơn"])
+            df_bn["Thời gian quét_dt"] = pd.to_datetime(
+                df_bn["Thời gian quét"],
+                errors="coerce",
+            )
+            df_bn = df_bn[df_bn["Mã chuẩn"] != ""].copy()
+
+            kept = []
+
+            for _, grp in df_bn.groupby(
+                ["Mã chuẩn", "Ngày vận hành"],
+                sort=False,
+                dropna=False,
+            ):
+                grp = grp.sort_values("Thời gian quét_dt")
+                chain = [grp.iloc[0]]
+
+                for i in range(1, len(grp)):
+                    nxt = grp.iloc[i]
+                    prev = chain[-1]
+
+                    dt_prev = prev["Thời gian quét_dt"]
+                    dt_next = nxt["Thời gian quét_dt"]
+
+                    gap = None
+                    if pd.notna(dt_prev) and pd.notna(dt_next):
+                        gap = abs(
+                            (dt_next - dt_prev).total_seconds()
+                        ) / 60.0
+
+                    if gap is not None and gap <= 15:
+                        chain[-1] = nxt
+                    else:
+                        chain.append(nxt)
+
+                kept.extend(chain)
+
+            tong_mau_so = len(kept)
     else:
+        # HCM / SH DC: giữ nguyên hoàn toàn.
         tong_mau_so = len(df_all)
 
     trang_thai = df_all["Trạng thái xử lý"].astype(str).str.strip()
@@ -554,7 +554,6 @@ def truy_van_bao_cao_ontime(tu, den, hub_chon=None):
 
     df_ontime.attrs["tong_mau_so"] = tong_mau_so
     return df_all, df_ontime
-
 
 
 
