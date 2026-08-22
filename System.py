@@ -73,7 +73,7 @@ if not DB_URL:
     st.stop()
 
 FEISHU_APP_ID             = st.secrets.get("FEISHU_APP_ID", "cli_a9456e412bb89bce")
-FEISHU_APP_SECRET         = st.secrets.get("FEISHU_APP_SECRET", "")
+FEISHU_APP_SECRET         = st.secrets.get("FEISHU_APP_SECRET", "BwSAuHHsv2woEdIGTqJoKboH6i1i7qBB")
 
 # Sheet COT dùng trực tiếp để tính Ontime xếp hàng.
 # Có thể ghi đè bằng Secrets; mặc định dùng đúng sheet COT của bộ cào JFS.
