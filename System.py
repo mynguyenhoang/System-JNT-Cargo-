@@ -158,6 +158,97 @@ def khoang_ngay(table, date_col):
     return (str(a)[:10], str(b)[:10]) if a else ("", "")
 
 
+
+@st.cache_data(ttl=300, show_spinner="Đang chuẩn hóa dữ liệu Dỡ xuống xe...")
+def lay_ib_da_loc_trung(tu, den, hub_chon=None):
+    """
+    Tập IB chuẩn dùng chung cho các KPI:
+      - nguồn: quet_hang
+      - Loại quét: Dỡ xuống xe
+      - lọc ngày vận hành + Hub
+      - dedup đúng logic backend:
+        cùng Mã vận đơn + cùng Ngày vận hành;
+        các lượt liên tiếp cách nhau <= 15 phút thì giữ lượt sau.
+    """
+    where_parts = [
+        '"Loại quét" = %s',
+        '"Ngày vận hành" >= %s',
+        '"Ngày vận hành" <= %s',
+    ]
+    params = ["Dỡ xuống xe", tu, den]
+
+    # quet_hang lưu Hub raw: BN / HCM / SHDC.
+    if hub_chon:
+        hub_raw = [str(h).strip() for h in hub_chon]
+        placeholders = ",".join(["%s"] * len(hub_raw))
+        where_parts.append(f'"Hub" IN ({placeholders})')
+        params.extend(hub_raw)
+
+    sql = (
+        'SELECT "Hub", "Mã vận đơn", "Thời gian quét", "Ngày vận hành", '
+        '"Bưu cục quét", "Trạm trước hoặc trạm tiếp theo" '
+        'FROM quet_hang WHERE '
+        + " AND ".join(where_parts)
+        + ' ORDER BY "Ngày vận hành", "Mã vận đơn", "Thời gian quét"'
+    )
+
+    con = ket_noi()
+    try:
+        df = pd.read_sql(sql, con, params=params)
+    finally:
+        con.close()
+
+    if df.empty:
+        return df
+
+    df["Mã chuẩn"] = _chuan_hoa_ma(df["Mã vận đơn"])
+    df["Thời gian quét_dt"] = pd.to_datetime(
+        df["Thời gian quét"], errors="coerce"
+    )
+    df = df[df["Mã chuẩn"] != ""].copy()
+
+    from collections import defaultdict
+    groups = defaultdict(list)
+    for _, row in df.iterrows():
+        groups[(row["Mã chuẩn"], str(row["Ngày vận hành"]))].append(row)
+
+    kept_rows = []
+    for items in groups.values():
+        items = sorted(
+            items,
+            key=lambda row: row["Thời gian quét_dt"]
+            if pd.notna(row["Thời gian quét_dt"])
+            else pd.Timestamp.min,
+        )
+
+        chain_kept = [items[0]]
+        for nxt in items[1:]:
+            prev = chain_kept[-1]
+            dt_prev = prev["Thời gian quét_dt"]
+            dt_next = nxt["Thời gian quét_dt"]
+
+            gap_minutes = None
+            if pd.notna(dt_prev) and pd.notna(dt_next):
+                gap_minutes = abs(
+                    (dt_next - dt_prev).total_seconds()
+                ) / 60.0
+
+            if gap_minutes is not None and gap_minutes <= 15:
+                chain_kept[-1] = nxt
+            else:
+                chain_kept.append(nxt)
+
+        kept_rows.extend(chain_kept)
+
+    if not kept_rows:
+        return df.iloc[0:0].copy()
+
+    result = pd.DataFrame(kept_rows)
+    return result.sort_values(
+        ["Ngày vận hành", "Thời gian quét_dt"]
+    ).reset_index(drop=True)
+
+
 @st.cache_data(ttl=300, show_spinner="Đang truy vấn dữ liệu...")
 def truy_van(table, date_col, hub_chon, loai_chon, tu, den, tim):
     dieu_kien, params = [], []
@@ -431,55 +522,50 @@ def tinh_ontime_xep_hang(hub, tu, den, loai_tuyen_chon=None):
 @st.cache_data(ttl=300, show_spinner="Đang lấy báo cáo Ontime...")
 def truy_van_bao_cao_ontime(tu, den, hub_chon=None):
     """
-    Nguồn: bảng bao_cao trên Supabase.
-
-    Mẫu số = toàn bộ dòng bao_cao trong khoảng ngày/hub đã chọn.
-    Vì bao_cao được dựng từ raw_unload_data (Dỡ xuống xe) sau dedup,
-    đây chính là tổng đơn Dỡ xuống xe đã lọc trùng.
-
-    Tử số = các dòng có "Trạng thái xử lý" = "Ontime".
+    Tổng Ontime:
+      - Mẫu số: toàn bộ Dỡ xuống xe sau dedup 15 phút từ quet_hang.
+      - Tử số: bao_cao với Trạng thái xử lý = Ontime.
     """
-    dieu_kien = []
-    params = []
+    df_ib = lay_ib_da_loc_trung(tu, den, hub_chon)
+    tong_mau_so = len(df_ib)
 
-    if tu:
-        dieu_kien.append('"Ngày vận hành" >= %s')
-        params.append(tu)
-
-    if den:
-        dieu_kien.append('"Ngày vận hành" <= %s')
-        params.append(den)
+    dieu_kien = [
+        '"Trạng thái xử lý" = %s',
+        '"Ngày vận hành" >= %s',
+        '"Ngày vận hành" <= %s',
+    ]
+    params = ["Ontime", tu, den]
 
     if hub_chon:
-        # Giao diện dùng HCM / BN / SH DC, nhưng bao_cao lưu HCM HUB / BN HUB / SH DC.
-        hub_db = [HUB_BAO_CAO.get(str(h).strip(), str(h).strip()) for h in hub_chon]
+        hub_db = [
+            HUB_BAO_CAO.get(str(h).strip(), str(h).strip())
+            for h in hub_chon
+        ]
         placeholders = ",".join(["%s"] * len(hub_db))
         dieu_kien.append(f'"Hub" IN ({placeholders})')
         params.extend(hub_db)
 
-    sql = 'SELECT * FROM bao_cao'
-    if dieu_kien:
-        sql += ' WHERE ' + ' AND '.join(dieu_kien)
-    sql += ' ORDER BY "Ngày vận hành", "Thời gian quét"'
+    sql = (
+        'SELECT * FROM bao_cao WHERE '
+        + " AND ".join(dieu_kien)
+        + ' ORDER BY "Ngày vận hành", "Thời gian quét"'
+    )
 
     con = ket_noi()
     try:
-        df_all = pd.read_sql(sql, con, params=params)
+        df_ontime = pd.read_sql(sql, con, params=params)
     finally:
         con.close()
 
-    if df_all.empty:
-        return df_all, df_all.copy()
+    if not df_ontime.empty and "Kết hợp" in df_ontime.columns:
+        df_ontime = df_ontime.drop_duplicates(
+            subset=["Kết hợp"],
+            keep="last",
+        ).copy()
 
-    # Kết hợp là khóa duy nhất của bao_cao; giữ thêm lớp bảo vệ này
-    # để mẫu số không bị phình nếu schema DB thay đổi sau này.
-    if "Kết hợp" in df_all.columns:
-        df_all = df_all.drop_duplicates(subset=["Kết hợp"], keep="last").copy()
+    return tong_mau_so, df_ontime
 
-    trang_thai = df_all["Trạng thái xử lý"].astype(str).str.strip()
-    df_ontime = df_all.loc[trang_thai.eq("Ontime")].copy()
 
-    return df_all, df_ontime
 
 
 def _feishu_ghi_bao_cao_ontime(token, sheet_name, tong_mau_so,
@@ -576,71 +662,28 @@ def day_len_bao_cao_ontime(sheet_name, df_all, df_ontime):
 @st.cache_data(ttl=300, show_spinner="Đang tính Ontime 1AM...")
 def truy_van_ontime_1am(tu, den, hub_chon=None):
     """
-    Ontime 1AM.
-
-    Mẫu số:
-      - Bảng quet_hang
-      - Loại quét = Dỡ xuống xe
-      - Scan trước 01:00 của ngày kế tiếp so với Ngày vận hành
-      - Đếm đơn duy nhất theo Mã vận đơn + Ngày vận hành
-
-    Tử số:
-      - Bảng bao_cao
-      - Trạng thái xử lý = Ontime
-      - IB trước 1h sáng = IB trước 01:00
+    Ontime 1AM:
+      - Mẫu số: chính tập Dỡ xuống xe đã dedup của Tổng IB,
+        sau đó lọc scan trước 01:00 của ngày kế tiếp theo Ngày vận hành.
+      - Tử số: bao_cao với:
+          Trạng thái xử lý = Ontime
+          IB trước 1h sáng = IB trước 01:00
     """
-    where_parts = [
-        '"Loại quét" = %s',
-        '"Ngày vận hành" >= %s',
-        '"Ngày vận hành" <= %s',
-    ]
-    params = ["Dỡ xuống xe", tu, den]
+    df_ib = lay_ib_da_loc_trung(tu, den, hub_chon)
 
-    if hub_chon:
-        placeholders = ",".join(["%s"] * len(hub_chon))
-        where_parts.append(f'"Hub" IN ({placeholders})')
-        params.extend(list(hub_chon))
-
-    sql_ib = (
-        'SELECT * FROM quet_hang WHERE '
-        + " AND ".join(where_parts)
-        + ' ORDER BY "Ngày vận hành", "Thời gian quét"'
-    )
-
-    con = ket_noi()
-    try:
-        df_ib = pd.read_sql(sql_ib, con, params=params)
-    finally:
-        con.close()
-
-    if not df_ib.empty:
-        df_ib["Mã chuẩn"] = _chuan_hoa_ma(df_ib["Mã vận đơn"])
-        df_ib["Thời gian quét_dt"] = pd.to_datetime(
+    if df_ib.empty:
+        tong_ib_1am = 0
+    else:
+        scan_dt = pd.to_datetime(
             df_ib["Thời gian quét"], errors="coerce"
         )
-        df_ib["Ngày vận hành_dt"] = pd.to_datetime(
+        op_dt = pd.to_datetime(
             df_ib["Ngày vận hành"], errors="coerce"
         )
-
-        # 01:00 của ngày kế tiếp theo Ngày vận hành.
-        df_ib["gioi_han_1am"] = (
-            df_ib["Ngày vận hành_dt"]
-            + pd.Timedelta(days=1, hours=1)
+        gioi_han_1am = op_dt + pd.Timedelta(days=1, hours=1)
+        tong_ib_1am = int(
+            (scan_dt < gioi_han_1am).sum()
         )
-
-        df_ib = df_ib[
-            df_ib["Thời gian quét_dt"] < df_ib["gioi_han_1am"]
-        ].copy()
-
-        df_ib = (
-            df_ib[df_ib["Mã chuẩn"] != ""]
-            .drop_duplicates(
-                subset=["Mã chuẩn", "Ngày vận hành"],
-                keep="last",
-            )
-        )
-
-    tong_ib_1am = len(df_ib)
 
     where_bc = [
         '"Trạng thái xử lý" = %s',
@@ -651,8 +694,10 @@ def truy_van_ontime_1am(tu, den, hub_chon=None):
     params_bc = ["Ontime", "IB trước 01:00", tu, den]
 
     if hub_chon:
-        # Giao diện dùng HCM / BN / SH DC, nhưng bao_cao lưu HCM HUB / BN HUB / SH DC.
-        hub_db = [HUB_BAO_CAO.get(str(h).strip(), str(h).strip()) for h in hub_chon]
+        hub_db = [
+            HUB_BAO_CAO.get(str(h).strip(), str(h).strip())
+            for h in hub_chon
+        ]
         placeholders = ",".join(["%s"] * len(hub_db))
         where_bc.append(f'"Hub" IN ({placeholders})')
         params_bc.extend(hub_db)
@@ -681,7 +726,14 @@ def truy_van_ontime_1am(tu, den, hub_chon=None):
         if tong_ib_1am else 0
     )
 
-    return tong_ib_1am, tong_ontime_1am, ty_le_ontime_1am, df_ontime_1am
+    return (
+        tong_ib_1am,
+        tong_ontime_1am,
+        ty_le_ontime_1am,
+        df_ontime_1am,
+    )
+
+
 
 
 @st.cache_data(ttl=300, show_spinner="Đang tạo file Excel...")
@@ -1006,13 +1058,13 @@ with tab_bao_cao_ontime:
 
     if truy_van_bc_clicked:
         try:
-            df_bc_all, df_bc_ontime = truy_van_bao_cao_ontime(
+            tong_mau_so_bc, df_bc_ontime = truy_van_bao_cao_ontime(
                 str(tu_bc) if tu_bc else "",
                 str(den_bc) if den_bc else "",
                 tuple(hub_bc),
             )
 
-            st.session_state["bc_ontime_all"] = df_bc_all
+            st.session_state["bc_ontime_mau_so"] = tong_mau_so_bc
             st.session_state["bc_ontime_detail"] = df_bc_ontime
             st.session_state["bc_ontime_tu"] = str(tu_bc) if tu_bc else ""
             st.session_state["bc_ontime_den"] = str(den_bc) if den_bc else ""
@@ -1021,11 +1073,9 @@ with tab_bao_cao_ontime:
         except Exception as e:
             st.error(f"Lỗi truy vấn báo cáo Ontime: {e}")
 
-    if "bc_ontime_all" in st.session_state:
-        df_bc_all = st.session_state["bc_ontime_all"]
+    if "bc_ontime_mau_so" in st.session_state and "bc_ontime_detail" in st.session_state:
+        tong_mau_so = st.session_state["bc_ontime_mau_so"]
         df_bc_ontime = st.session_state["bc_ontime_detail"]
-
-        tong_mau_so = len(df_bc_all)
         tong_ontime = len(df_bc_ontime)
         ty_le_ontime = (
             tong_ontime / tong_mau_so * 100
