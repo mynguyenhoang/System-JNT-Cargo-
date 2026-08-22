@@ -433,103 +433,115 @@ def truy_van_bao_cao_ontime(tu, den, hub_chon=None):
     """
     Tổng Ontime:
 
-    BN:
-      - Mẫu số: DISTINCT Mã vận đơn từ quet_hang / BN / Dỡ xuống xe.
-      - Tử số: bao_cao / Hub = BN HUB / Trạng thái xử lý = Ontime.
-      - Không dedup lại tử số.
+    Mẫu số:
+      quet_hang -> Loại quét = Dỡ xuống xe
+      -> đúng Ngày vận hành
+      -> đúng Hub được chọn
+      -> DISTINCT Mã vận đơn
 
-    HCM/SHDC:
-      - Giữ nguyên logic hiện tại của bao_cao.
+    Tử số:
+      bao_cao -> đúng Ngày vận hành
+      -> đúng Hub được chọn
+      -> Trạng thái xử lý = Ontime
+      -> KHÔNG lọc trùng lại.
+
+    Đây là cùng một nguyên tắc cho BN / HCM / SH DC.
     """
-    chi_bn = (
-        len(hub_chon) == 1
-        and str(hub_chon[0]).strip() == "BN"
+    # ---------------- Mẫu số: quet_hang ----------------
+    where_raw = [
+        '"Loại quét" = %s',
+        '"Ngày vận hành" >= %s',
+        '"Ngày vận hành" <= %s',
+    ]
+    params_raw = [
+        "Dỡ xuống xe",
+        tu,
+        den,
+    ]
+
+    if hub_chon:
+        hub_raw = []
+        for h in hub_chon:
+            h_clean = str(h).strip()
+            # UI có thể hiển thị SH DC; DB raw dùng SHDC.
+            if h_clean == "SH DC":
+                hub_raw.append("SHDC")
+            else:
+                hub_raw.append(h_clean)
+
+        placeholders = ",".join(["%s"] * len(hub_raw))
+        where_raw.append(f'"Hub" IN ({placeholders})')
+        params_raw.extend(hub_raw)
+
+    sql_raw = (
+        'SELECT "Mã vận đơn" '
+        'FROM quet_hang WHERE '
+        + " AND ".join(where_raw)
     )
 
-    # ---------------- Mẫu số ----------------
-    if chi_bn:
-        sql_bn = """
-            SELECT "Mã vận đơn"
-            FROM quet_hang
-            WHERE "Hub" = %s
-              AND "Loại quét" = %s
-              AND "Ngày vận hành" >= %s
-              AND "Ngày vận hành" <= %s
-        """
+    con = ket_noi()
+    try:
+        df_raw = pd.read_sql(
+            sql_raw,
+            con,
+            params=params_raw,
+        )
+    finally:
+        con.close()
 
-        con = ket_noi()
-        try:
-            df_bn = pd.read_sql(
-                sql_bn,
-                con,
-                params=("BN", "Dỡ xuống xe", tu, den),
-            )
-        finally:
-            con.close()
-
-        tong_mau_so = (
-            int(_chuan_hoa_ma(df_bn["Mã vận đơn"]).nunique())
-            if not df_bn.empty
-            else 0
+    if df_raw.empty:
+        tong_mau_so = 0
+    else:
+        ma_chuan = _chuan_hoa_ma(df_raw["Mã vận đơn"])
+        tong_mau_so = int(
+            ma_chuan[ma_chuan != ""].nunique()
         )
 
-        # ---------------- Tử số BN ----------------
-        sql_ontime = """
-            SELECT *
-            FROM bao_cao
-            WHERE "Hub" = %s
-              AND "Trạng thái xử lý" = %s
-              AND "Ngày vận hành" >= %s
-              AND "Ngày vận hành" <= %s
-            ORDER BY "Ngày vận hành", "Thời gian quét"
-        """
-
-        con = ket_noi()
-        try:
-            df_ontime = pd.read_sql(
-                sql_ontime,
-                con,
-                params=("BN HUB", "Ontime", tu, den),
-            )
-        finally:
-            con.close()
-
-        # bao_cao đã được xử lý trùng ở pipeline; không dedup lại.
-        df_all = df_ontime.copy()
-        df_ontime.attrs["tong_mau_so"] = tong_mau_so
-        return df_all, df_ontime
-
-    # ---------------- HCM / SHDC: giữ nguyên ----------------
-    dieu_kien = [
+    # ---------------- Tử số: bao_cao ----------------
+    where_bc = [
         '"Trạng thái xử lý" = %s',
         '"Ngày vận hành" >= %s',
         '"Ngày vận hành" <= %s',
     ]
-    params = ["Ontime", tu, den]
+    params_bc = [
+        "Ontime",
+        tu,
+        den,
+    ]
 
     if hub_chon:
         hub_db = [
-            HUB_BAO_CAO.get(str(h).strip(), str(h).strip())
+            HUB_BAO_CAO.get(
+                str(h).strip(),
+                "SH DC" if str(h).strip() == "SH DC" else str(h).strip(),
+            )
             for h in hub_chon
         ]
         placeholders = ",".join(["%s"] * len(hub_db))
-        dieu_kien.append(f'"Hub" IN ({placeholders})')
-        params.extend(hub_db)
+        where_bc.append(f'"Hub" IN ({placeholders})')
+        params_bc.extend(hub_db)
 
-    sql = (
+    sql_bc = (
         'SELECT * FROM bao_cao WHERE '
-        + " AND ".join(dieu_kien)
+        + " AND ".join(where_bc)
         + ' ORDER BY "Ngày vận hành", "Thời gian quét"'
     )
 
     con = ket_noi()
     try:
-        df_ontime = pd.read_sql(sql, con, params=params)
+        df_ontime = pd.read_sql(
+            sql_bc,
+            con,
+            params=params_bc,
+        )
     finally:
         con.close()
 
+    # bao_cao đã được xử lý trùng ở pipeline.
+    # TUYỆT ĐỐI không drop_duplicates lại ở frontend.
     df_all = df_ontime.copy()
-    df_ontime.attrs["tong_mau_so"] = len(df_all)
+    df_ontime.attrs["tong_mau_so"] = tong_mau_so
+
     return df_all, df_ontime
 
 
@@ -631,50 +643,73 @@ def truy_van_ontime_1am(tu, den, hub_chon=None):
     Ontime 1AM.
 
     Mẫu số:
-      - Bảng quet_hang
-      - Loại quét = Dỡ xuống xe
-      - Scan trước 01:00 của ngày kế tiếp so với Ngày vận hành
-      - Đếm đơn duy nhất theo Mã vận đơn + Ngày vận hành
+      - quet_hang
+      - Dỡ xuống xe
+      - đúng Ngày vận hành + Hub
+      - scan trước 01:00 ngày kế tiếp
+      - DISTINCT Mã vận đơn
 
     Tử số:
-      - Bảng bao_cao
+      - bao_cao
+      - đúng Hub + Ngày vận hành
       - Trạng thái xử lý = Ontime
       - IB trước 1h sáng = IB trước 01:00
+      - KHÔNG dedup lại.
     """
     where_parts = [
         '"Loại quét" = %s',
         '"Ngày vận hành" >= %s',
         '"Ngày vận hành" <= %s',
     ]
-    params = ["Dỡ xuống xe", tu, den]
+    params = [
+        "Dỡ xuống xe",
+        tu,
+        den,
+    ]
 
     if hub_chon:
-        placeholders = ",".join(["%s"] * len(hub_chon))
+        hub_raw = []
+        for h in hub_chon:
+            h_clean = str(h).strip()
+            hub_raw.append(
+                "SHDC" if h_clean == "SH DC" else h_clean
+            )
+        placeholders = ",".join(["%s"] * len(hub_raw))
         where_parts.append(f'"Hub" IN ({placeholders})')
-        params.extend(list(hub_chon))
+        params.extend(hub_raw)
 
     sql_ib = (
-        'SELECT * FROM quet_hang WHERE '
+        'SELECT "Mã vận đơn", "Ngày vận hành", "Thời gian quét" '
+        'FROM quet_hang WHERE '
         + " AND ".join(where_parts)
         + ' ORDER BY "Ngày vận hành", "Thời gian quét"'
     )
 
     con = ket_noi()
     try:
-        df_ib = pd.read_sql(sql_ib, con, params=params)
+        df_ib = pd.read_sql(
+            sql_ib,
+            con,
+            params=params,
+        )
     finally:
         con.close()
 
-    if not df_ib.empty:
-        df_ib["Mã chuẩn"] = _chuan_hoa_ma(df_ib["Mã vận đơn"])
+    if df_ib.empty:
+        tong_ib_1am = 0
+    else:
+        df_ib["Mã chuẩn"] = _chuan_hoa_ma(
+            df_ib["Mã vận đơn"]
+        )
         df_ib["Thời gian quét_dt"] = pd.to_datetime(
-            df_ib["Thời gian quét"], errors="coerce"
+            df_ib["Thời gian quét"],
+            errors="coerce",
         )
         df_ib["Ngày vận hành_dt"] = pd.to_datetime(
-            df_ib["Ngày vận hành"], errors="coerce"
+            df_ib["Ngày vận hành"],
+            errors="coerce",
         )
 
-        # 01:00 của ngày kế tiếp theo Ngày vận hành.
         df_ib["gioi_han_1am"] = (
             df_ib["Ngày vận hành_dt"]
             + pd.Timedelta(days=1, hours=1)
@@ -684,27 +719,37 @@ def truy_van_ontime_1am(tu, den, hub_chon=None):
             df_ib["Thời gian quét_dt"] < df_ib["gioi_han_1am"]
         ].copy()
 
-        df_ib = (
-            df_ib[df_ib["Mã chuẩn"] != ""]
-            .drop_duplicates(
-                subset=["Mã chuẩn", "Ngày vận hành"],
-                keep="last",
-            )
+        df_ib = df_ib[
+            df_ib["Mã chuẩn"] != ""
+        ].drop_duplicates(
+            subset=["Mã chuẩn", "Ngày vận hành"],
+            keep="last",
         )
 
-    tong_ib_1am = len(df_ib)
+        tong_ib_1am = len(df_ib)
 
+    # Tử số: bao_cao, đúng Hub.
     where_bc = [
         '"Trạng thái xử lý" = %s',
         '"IB trước 1h sáng" = %s',
         '"Ngày vận hành" >= %s',
         '"Ngày vận hành" <= %s',
     ]
-    params_bc = ["Ontime", "IB trước 01:00", tu, den]
+    params_bc = [
+        "Ontime",
+        "IB trước 01:00",
+        tu,
+        den,
+    ]
 
     if hub_chon:
-        # Giao diện dùng HCM / BN / SH DC, nhưng bao_cao lưu HCM HUB / BN HUB / SH DC.
-        hub_db = [HUB_BAO_CAO.get(str(h).strip(), str(h).strip()) for h in hub_chon]
+        hub_db = [
+            HUB_BAO_CAO.get(
+                str(h).strip(),
+                "SH DC" if str(h).strip() == "SH DC" else str(h).strip(),
+            )
+            for h in hub_chon
+        ]
         placeholders = ",".join(["%s"] * len(hub_db))
         where_bc.append(f'"Hub" IN ({placeholders})')
         params_bc.extend(hub_db)
@@ -717,23 +762,29 @@ def truy_van_ontime_1am(tu, den, hub_chon=None):
 
     con = ket_noi()
     try:
-        df_ontime_1am = pd.read_sql(sql_bc, con, params=params_bc)
+        df_ontime_1am = pd.read_sql(
+            sql_bc,
+            con,
+            params=params_bc,
+        )
     finally:
         con.close()
 
-    if not df_ontime_1am.empty and "Kết hợp" in df_ontime_1am.columns:
-        df_ontime_1am = df_ontime_1am.drop_duplicates(
-            subset=["Kết hợp"],
-            keep="last",
-        ).copy()
-
+    # Không drop_duplicates ở tử số.
     tong_ontime_1am = len(df_ontime_1am)
+
     ty_le_ontime_1am = (
         tong_ontime_1am / tong_ib_1am * 100
         if tong_ib_1am else 0
     )
 
-    return tong_ib_1am, tong_ontime_1am, ty_le_ontime_1am, df_ontime_1am
+    return (
+        tong_ib_1am,
+        tong_ontime_1am,
+        ty_le_ontime_1am,
+        df_ontime_1am,
+    )
+
 
 
 
