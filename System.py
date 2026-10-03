@@ -674,7 +674,7 @@ def page_bao_cao_ontime():
 # 6. ĐIỀU HƯỚNG CHÍNH (MENU TAB NGANG TRÊN ĐẦU)
 # ==========================================
 def main():
-    st.markdown("## ⚙️ VẬN HÀNH QC")
+    st.markdown("## Dữ liệu QC")
     
     # Menu dạng tab ngang trên đầu: cố định, luôn hiện rõ, không bao giờ mất
     menu_lua_chon = st.radio(
