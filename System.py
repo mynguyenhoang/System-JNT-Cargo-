@@ -44,7 +44,6 @@ st.markdown("""
         box-shadow: 0 4px 6px rgba(0,0,0,0.1);
     }
     .main-header h1 { color: white; margin: 0; font-size: 24px; font-weight: 700; }
-    .main-header p { color: #93b4da; margin: 5px 0 0 0; font-size: 14px; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -192,7 +191,7 @@ def truy_van_du_lieu_tho(hub_chon, loai_chon, tu, den, tim):
     return df
 
 def page_du_lieu_tho():
-    st.markdown('<div class="main-header"><h1>SẢN LƯỢNG | 生产</h1><p>Truy vấn dữ liệu quét hàng vận hành</p></div>', unsafe_allow_html=True)
+    st.markdown('<div class="main-header"><h1>SẢN LƯỢNG | 生产</h1></div>', unsafe_allow_html=True)
     
     with st.expander("BỘ LỌC TÌM KIẾM", expanded=True):
         with st.form("bo_loc"):
@@ -298,7 +297,7 @@ def truy_van_ontime_xep_xe(hub_chon, tu, den):
     return df
 
 def page_ontime_xep_xe():
-    st.markdown('<div class="main-header"><h1>Linehaul Ontime Departure / 干线准时发车</h1><p>Theo dõi tiến độ chuyến xe giao đi</p></div>', unsafe_allow_html=True)
+    st.markdown('<div class="main-header"><h1>Linehaul Ontime Departure / 干线准时发车</h1></div>', unsafe_allow_html=True)
     
     with st.expander("BỘ LỌC TÌM KIẾM", expanded=True):
         with st.form("form_ontime_xh"):
@@ -377,8 +376,8 @@ def page_ontime_xep_xe():
 # 5. TRANG 3: Ontime 准时报表
 # ==========================================
 def page_bao_cao_ontime():
-    st.markdown('<div class="main-header"><h1>Ontime 准时报表</h1><p>Báo cáo tỷ lệ đúng giờ tổng hợp</p></div>', unsafe_allow_html=True)
-    st.info("Trang báo cáo tổng hợp Ontime đang được xây dựng. Bạn có thể nhắn thêm yêu cầu chi tiết để tôi hoàn thiện nốt nhé!")
+    st.markdown('<div class="main-header"><h1>Ontime 准时报表</h1></div>', unsafe_allow_html=True)
+    st.info("Trang báo cáo tổng hợp Ontime đang được xây dựng.")
 
 
 # ==========================================
