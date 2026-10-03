@@ -263,24 +263,31 @@ def page_du_lieu_tho():
 
 
 # ==========================================
-# 4. TRANG 2: ONTIME XẾP XE (raw_quan_ly_tien_do_xep_hang)
+# 4. TRANG 2: ONTIME XẾP XE (FIX LỖI DATETIME FORMAT)
 # ==========================================
 @st.cache_data(ttl=300, show_spinner="Đang truy vấn tiến độ xếp xe...")
 def truy_van_ontime_xep_xe(hub_chon, tu, den):
-    safe_date = """(CASE WHEN "Date" LIKE '%%/%%' THEN TO_DATE("Date", 'MM/DD/YYYY') ELSE "Date"::date END)"""
+    # Dùng hàm an toàn lọc bỏ qua các dòng lỗi định dạng (như #VALUE!) trong DB
+    safe_date_check = """
+        CASE 
+            WHEN "Date" ~ '^[0-9]{2}/[0-9]{2}/[0-9]{4}$' THEN TO_DATE("Date", 'MM/DD/YYYY')
+            WHEN "Date" ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' THEN "Date"::date
+            ELSE NULL
+        END
+    """
     sql = f"""
         SELECT * FROM raw_quan_ly_tien_do_xep_hang
-        WHERE 1=1
+        WHERE ("Date" ~ '^[0-9]{{2}}/[0-9]{{2}}/[0-9]{{4}}$' OR "Date" ~ '^[0-9]{{4}}-[0-9]{{2}}-[0-9]{{2}}$')
     """
     dk, params = [], []
     if hub_chon:
         dk.append(f'"Bộ phận xếp hàng" IN ({",".join(["%s"] * len(hub_chon))})')
         params += list(hub_chon)
     if tu:
-        dk.append(f"{safe_date} >= %s")
+        dk.append(f"({safe_date_check}) >= %s")
         params.append(tu)
     if den:
-        dk.append(f"{safe_date} <= %s")
+        dk.append(f"({safe_date_check}) <= %s")
         params.append(den)
         
     if dk:
@@ -313,14 +320,12 @@ def page_ontime_xep_xe():
         divider_label("Kết quả tiến độ chuyến xe")
 
         if not df_xh.empty:
-            # Chuẩn hóa cột type và ontime để thống kê
             df_xh["type_clean"] = df_xh["type"].astype(str).str.strip().str.upper()
             df_xh["ontime_clean"] = df_xh["ontime"].astype(str).str.strip().str.lower()
 
             tong_linehaul = (df_xh["type_clean"] == "LINEHAUL").sum()
             tong_shuttle = (df_xh["type_clean"] == "SHUTTLE").sum()
             
-            # Đếm số chuyến ontime / late
             so_ontime = (df_xh["ontime_clean"] == "ontime").sum()
             so_late = (df_xh["ontime_clean"] == "late").sum()
             ty_le_ontime = (so_ontime / len(df_xh) * 100) if len(df_xh) > 0 else 0
