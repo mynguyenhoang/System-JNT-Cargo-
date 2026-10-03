@@ -83,12 +83,14 @@ def xuat_excel(df_dict):
     return buf.getvalue()
 
 # ==========================================
-# 3. LOGIC TRUY VẤN DỮ LIỆU THÔ (ĐÃ FIX CHUẨN XÁC NGUỒN VÀ CHECK TRÙNG)
+# 3. LOGIC TRUY VẤN DỮ LIỆU THÔ (DÙNG CHUNG HÀM ÉP NGÀY CHO CẢ 2 BẢNG)
 # ==========================================
 @st.cache_data(ttl=300, show_spinner="Đang truy vấn dữ liệu từ Supabase...")
 def truy_van_du_lieu_tho(hub_chon, loai_chon, tu, den, tim):
     df_list = []
-    safe_date_ib = """(CASE WHEN "Ngày vận hành" LIKE '%%/%%' THEN TO_DATE("Ngày vận hành", 'MM/DD/YYYY') ELSE "Ngày vận hành"::date END)"""
+    
+    # Hàm an toàn xử lý cả 2 bảng vì cả kpi_base và raw_quet_hang_xep_len_xe đều có Ngày vận hành dạng 'MM/DD/YYYY'
+    safe_date = """(CASE WHEN "Ngày vận hành" LIKE '%%/%%' THEN TO_DATE("Ngày vận hành", 'MM/DD/YYYY') ELSE "Ngày vận hành"::date END)"""
 
     # A. Truy vấn IB từ kpi_base
     if not loai_chon or "Dỡ xuống xe" in loai_chon:
@@ -103,10 +105,10 @@ def truy_van_du_lieu_tho(hub_chon, loai_chon, tu, den, tim):
             dk_ib.append(f'"Bưu cục quét" IN ({",".join(["%s"] * len(hub_chon))})')
             p_ib += list(hub_chon)
         if tu:
-            dk_ib.append(f"{safe_date_ib} >= %s")
+            dk_ib.append(f"{safe_date} >= %s")
             p_ib.append(tu)
         if den:
-            dk_ib.append(f"{safe_date_ib} <= %s")
+            dk_ib.append(f"{safe_date} <= %s")
             p_ib.append(den)
         if tim:
             dk_ib.append(f'"Mã vận đơn" LIKE %s')
@@ -119,12 +121,11 @@ def truy_van_du_lieu_tho(hub_chon, loai_chon, tu, den, tim):
         con.close()
         df_list.append(df_ib)
 
-    # B. Truy vấn OB từ raw_quet_hang_xep_len_xe (Dùng Thời gian quét để lọc ngày)
+    # B. Truy vấn OB từ raw_quet_hang_xep_len_xe (Đã dùng đúng cột Ngày vận hành)
     if not loai_chon or "Xếp lên xe" in loai_chon:
-        sql_ob = """
+        sql_ob = f"""
             SELECT "Mã vận đơn", "Thời gian quét", "Bưu cục quét" AS "Hub", 
-                   "Trọng lượng", SUBSTRING("Thời gian quét", 1, 10) AS "Ngày vận hành", 
-                   'Xếp lên xe' AS "Loại quét"
+                   "Trọng lượng", "Ngày vận hành", 'Xếp lên xe' AS "Loại quét"
             FROM raw_quet_hang_xep_len_xe
             WHERE 1=1
         """
@@ -133,10 +134,10 @@ def truy_van_du_lieu_tho(hub_chon, loai_chon, tu, den, tim):
             dk_ob.append(f'"Bưu cục quét" IN ({",".join(["%s"] * len(hub_chon))})')
             p_ob += list(hub_chon)
         if tu:
-            dk_ob.append('SUBSTRING("Thời gian quét", 1, 10) >= %s')
+            dk_ob.append(f"{safe_date} >= %s")
             p_ob.append(tu)
         if den:
-            dk_ob.append('SUBSTRING("Thời gian quét", 1, 10) <= %s')
+            dk_ob.append(f"{safe_date} <= %s")
             p_ob.append(den)
         if tim:
             dk_ob.append(f'"Mã vận đơn" LIKE %s')
