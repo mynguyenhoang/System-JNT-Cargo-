@@ -8,7 +8,7 @@ from openpyxl.utils import get_column_letter
 import streamlit as st
 
 # ==========================================
-# 1. CẤU HÌNH TRANG & CSS
+# 1. CẤU HÌNH TRANG & CSS (TONE XANH LÁ CHUYÊN NGHIỆP)
 # ==========================================
 st.set_page_config(
     page_title="QC Operations Hub",
@@ -23,22 +23,29 @@ st.markdown("""
     
     [data-testid="metric-container"] {
         background: #ffffff;
-        border: 1px solid #e0e6ed;
+        border: 1px solid #c8e6c9;
         border-radius: 8px;
         padding: 1.2rem !important;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        box-shadow: 0 2px 4px rgba(46, 125, 50, 0.08);
+    }
+    [data-testid="metric-container"] label {
+        color: #2e7d32 !important;
+        font-weight: 600 !important;
     }
     
     .stButton button[kind="primary"], .stDownloadButton button {
-        background-color: #1a3a6b !important;
+        background-color: #2e7d32 !important;
         color: white !important;
         border: none !important;
         border-radius: 6px !important;
         font-weight: 600 !important;
     }
+    .stButton button[kind="primary"]:hover, .stDownloadButton button:hover {
+        background-color: #1b5e20 !important;
+    }
     
     .main-header {
-        background: linear-gradient(135deg, #1a3a6b 0%, #2a5298 100%);
+        background: linear-gradient(135deg, #1b5e20 0%, #2e7d32 100%);
         padding: 20px 30px;
         border-radius: 8px;
         margin-bottom: 25px;
@@ -78,8 +85,8 @@ def _khoa_buu_cuc(series):
 
 def divider_label(text):
     st.markdown(
-        f'<div style="font-size:13px;font-weight:bold;color:#1a3a6b;'
-        f'text-transform:uppercase;border-bottom:2px solid #1a3a6b;padding-bottom:5px;margin:25px 0 15px;">'
+        f'<div style="font-size:13px;font-weight:bold;color:#2e7d32;'
+        f'text-transform:uppercase;border-bottom:2px solid #2e7d32;padding-bottom:5px;margin:25px 0 15px;">'
         f'{text}</div>',
         unsafe_allow_html=True,
     )
@@ -621,7 +628,7 @@ def page_bao_cao_ontime():
         divider_label("Chi tiết dữ liệu báo cáo")
         st.dataframe(df_bc.head(500), use_container_width=True, height=400)
 
-        # ── LỰA CHỌN ĐỦ 5 NHÓM ĐÃ BỎ HẾT NGOẶC ĐƠN ──
+        # ── LỰA CHỌN ĐỦ 5 NHÓM ĐÃ BỎ NGOẶC ĐƠN ──
         st.markdown("#### Tùy chọn xuất dữ liệu / Đẩy lên Feishu")
         chon_nhom_push = st.selectbox(
             "Chọn nhóm dữ liệu bạn muốn thao tác:",
