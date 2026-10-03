@@ -621,21 +621,52 @@ def page_bao_cao_ontime():
         divider_label("Chi tiết dữ liệu báo cáo")
         st.dataframe(df_bc.head(500), use_container_width=True, height=400)
 
+        # ── THÊM OPTION LỰA CHỌN NHÓM DỮ LIỆU ĐỂ ĐẨY LÊN FEISHU ──
+        st.markdown("#### Tùy chọn xuất dữ liệu / Đẩy lên Feishu")
+        chon_nhom_push = st.selectbox(
+            "Chọn nhóm dữ liệu bạn muốn thao tác:",
+            [
+                "1. Toàn bộ báo cáo chi tiết (df_bc)",
+                "2. Đơn hàng gửi đúng COT",
+                "3. Đơn hàng Inbound 1AM (Trước 1AM)",
+                "4. Tuyến chính (Linehaul) gửi đúng hạn",
+                "5. Tuyến nhánh (Shuttle) gửi đúng hạn"
+            ],
+            key="select_nhom_push"
+        )
+
+        # Xác định DataFrame tương ứng dựa theo lựa chọn của ông
+        if "1." in chon_nhom_push:
+            df_push = df_bc
+            sheet_push_name = "BaoCaoOntime_ToanBo"
+        elif "2." in chon_nhom_push:
+            df_push = df_cot
+            sheet_push_name = "DonHang_DungCOT"
+        elif "3." in chon_nhom_push:
+            df_push = df_1am_truoc
+            sheet_push_name = "Inbound_1AM"
+        elif "4." in chon_nhom_push:
+            df_push = df_lh_dung_gio if 'df_lh_dung_gio' in locals() else pd.DataFrame()
+            sheet_push_name = "TuyenChinh_Linehaul"
+        else:
+            df_push = df_sh_dung_gio if 'df_sh_dung_gio' in locals() else pd.DataFrame()
+            sheet_push_name = "TuyenNhanh_Shuttle"
+
         cot_tai, cot_day = st.columns(2)
         with cot_tai:
             st.download_button(
-                f"Tải Excel Báo Cáo ({len(df_bc):,} dòng)",
-                xuat_excel({"Bao cao Ontime": df_bc}),
-                file_name=f"bao_cao_ontime_{datetime.date.today()}.xlsx",
+                f"Tải Excel nhóm đã chọn ({len(df_push):,} dòng)",
+                xuat_excel({sheet_push_name: df_push}),
+                file_name=f"{sheet_push_name}_{datetime.date.today()}.xlsx",
                 use_container_width=True,
                 type="primary",
             )
         with cot_day:
-            if st.button(f"Đẩy lên Feishu Sheets ({len(df_bc):,} dòng)", use_container_width=True, key="feishu_bao_cao_ontime"):
+            if st.button(f"Đẩy nhóm này lên Feishu Sheets ({len(df_push):,} dòng)", use_container_width=True, key="feishu_nhom_ontime"):
                 try:
-                    with st.spinner("Đang đẩy dữ liệu báo cáo Ontime lên Feishu..."):
-                        n_dong = day_len_feishu("BaoCaoOntime", df_bc)
-                    st.success(f"Đã đẩy thành công {n_dong:,} dòng lên Feishu Sheets!")
+                    with st.spinner(f"Đang đẩy nhóm '{chon_nhom_push}' lên Feishu (Sheet: {sheet_push_name})..."):
+                        n_dong = day_len_feishu(sheet_push_name, df_push)
+                    st.success(f"Đã đẩy thành công {n_dong:,} dòng vào tab '{sheet_push_name}' trên Feishu Sheets!")
                 except Exception as e:
                     st.error(f"Đẩy Feishu thất bại: {e}")
 
