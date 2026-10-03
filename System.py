@@ -50,12 +50,7 @@ st.markdown("""
 # ==========================================
 # 2. CÁC HÀM TIỆN ÍCH CƠ BẢN
 # ==========================================
-# Chuỗi kết nối KHÔNG ghi thẳng trong code. Khai báo trong Streamlit:
-#   App -> Settings -> Secrets:   DB_URL = "postgresql://..."
-DB_URL = st.secrets.get("DB_URL", "")
-if not DB_URL:
-    st.error("Chưa khai báo DB_URL trong Secrets của app.")
-    st.stop()
+DB_URL = "postgresql://postgres.hpjxaxspjgsnsoxhvskm:07736215400394219723@aws-0-ap-southeast-2.pooler.supabase.com:5432/postgres?sslmode=require"
 
 # Trang "Ontime 准时报表": các Bưu cục (cột "Bưu cục") bị loại khỏi tổng IB và COT.
 # So khớp không phân biệt hoa/thường và bỏ khoảng trắng ("DT TN" = "DTTN").
@@ -449,14 +444,7 @@ def page_bao_cao_ontime():
         # Loại trừ các đơn có Bưu cục (đích) thuộc DT TN / SETN.
         # Chỉ áp dụng ở trang này; trang SẢN LƯỢNG vẫn giữ nguyên toàn bộ số IB.
         mask_loai_tru = _khoa_buu_cuc(df_bc_goc["Bưu cục"]).isin(BUU_CUC_LOAI_TRU)
-        so_dong_loai_tru = int(mask_loai_tru.sum())
         df_bc = df_bc_goc.loc[~mask_loai_tru].copy()
-
-        if so_dong_loai_tru:
-            st.caption(
-                f"Đã loại trừ {so_dong_loai_tru:,} dòng có Bưu cục thuộc DT TN / SETN "
-                f"khỏi các chỉ số và bảng chi tiết bên dưới."
-            )
 
         if df_bc.empty:
             st.warning("Sau khi loại trừ DT TN / SETN không còn dữ liệu nào.")
@@ -485,7 +473,7 @@ def page_bao_cao_ontime():
 
         st.markdown("### Chỉ số Hiệu suất COT & 1AM")
         r1, r2, r3 = st.columns(3)
-        r1.metric("Tổng volume IB (đã loại DT TN, SETN)", f"{tong_ib:,}")
+        r1.metric("Tổng volume IB", f"{tong_ib:,}")
         r2.metric("Tổng số đơn hàng được gửi đúng COT (按COT准时出库的订单量)", f"{tong_dung_cot:,}")
         r3.metric("Tỷ lệ COT", f"{ty_le_cot:.2f}%")
 
