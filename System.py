@@ -83,29 +83,30 @@ def xuat_excel(df_dict):
     return buf.getvalue()
 
 # ==========================================
-# 3. LOGIC TRUY VẤN DỮ LIỆU THÔ (TỐI ƯU HÓA CHECK TRÙNG)
+# 3. LOGIC TRUY VẤN DỮ LIỆU THÔ (ĐÃ FIX CHUẨN XÁC NGUỒN VÀ CHECK TRÙNG)
 # ==========================================
 @st.cache_data(ttl=300, show_spinner="Đang truy vấn dữ liệu từ Supabase...")
 def truy_van_du_lieu_tho(hub_chon, loai_chon, tu, den, tim):
     df_list = []
-    safe_date = """(CASE WHEN "Ngày vận hành" LIKE '%%/%%' THEN TO_DATE("Ngày vận hành", 'MM/DD/YYYY') ELSE "Ngày vận hành"::date END)"""
+    safe_date_ib = """(CASE WHEN "Ngày vận hành" LIKE '%%/%%' THEN TO_DATE("Ngày vận hành", 'MM/DD/YYYY') ELSE "Ngày vận hành"::date END)"""
 
     # A. Truy vấn IB từ kpi_base
     if not loai_chon or "Dỡ xuống xe" in loai_chon:
-        sql_ib = """
+        sql_ib = f"""
             SELECT "Mã vận đơn", "Thời gian quét", "Bưu cục quét" AS "Hub", 
                    "Trọng lượng", "Ngày vận hành", 'Dỡ xuống xe' AS "Loại quét"
-            FROM kpi_base WHERE 1=1
+            FROM kpi_base
+            WHERE 1=1
         """
         dk_ib, p_ib = [], []
         if hub_chon:
             dk_ib.append(f'"Bưu cục quét" IN ({",".join(["%s"] * len(hub_chon))})')
             p_ib += list(hub_chon)
         if tu:
-            dk_ib.append(f"{safe_date} >= %s")
+            dk_ib.append(f"{safe_date_ib} >= %s")
             p_ib.append(tu)
         if den:
-            dk_ib.append(f"{safe_date} <= %s")
+            dk_ib.append(f"{safe_date_ib} <= %s")
             p_ib.append(den)
         if tim:
             dk_ib.append(f'"Mã vận đơn" LIKE %s')
@@ -118,22 +119,24 @@ def truy_van_du_lieu_tho(hub_chon, loai_chon, tu, den, tim):
         con.close()
         df_list.append(df_ib)
 
-    # B. Truy vấn OB từ raw_quet_hang_xep_len_xe
+    # B. Truy vấn OB từ raw_quet_hang_xep_len_xe (Dùng Thời gian quét để lọc ngày)
     if not loai_chon or "Xếp lên xe" in loai_chon:
         sql_ob = """
             SELECT "Mã vận đơn", "Thời gian quét", "Bưu cục quét" AS "Hub", 
-                   "Trọng lượng", "Ngày vận hành", 'Xếp lên xe' AS "Loại quét"
-            FROM raw_quet_hang_xep_len_xe WHERE 1=1
+                   "Trọng lượng", SUBSTRING("Thời gian quét", 1, 10) AS "Ngày vận hành", 
+                   'Xếp lên xe' AS "Loại quét"
+            FROM raw_quet_hang_xep_len_xe
+            WHERE 1=1
         """
         dk_ob, p_ob = [], []
         if hub_chon:
             dk_ob.append(f'"Bưu cục quét" IN ({",".join(["%s"] * len(hub_chon))})')
             p_ob += list(hub_chon)
         if tu:
-            dk_ob.append(f"{safe_date} >= %s")
+            dk_ob.append('SUBSTRING("Thời gian quét", 1, 10) >= %s')
             p_ob.append(tu)
         if den:
-            dk_ob.append(f"{safe_date} <= %s")
+            dk_ob.append('SUBSTRING("Thời gian quét", 1, 10) <= %s')
             p_ob.append(den)
         if tim:
             dk_ob.append(f'"Mã vận đơn" LIKE %s')
@@ -162,8 +165,8 @@ def truy_van_du_lieu_tho(hub_chon, loai_chon, tu, den, tim):
             for i in range(0, len(danh_sach_mvd), chunk_size):
                 chunk = tuple(danh_sach_mvd[i : i + chunk_size])
                 
-                # Lấy toàn bộ lịch sử IB và OB của tập mã này để tính đợt chuẩn xác không bị đứt đoạn
-                sql_hist = f"""
+                # Gom lịch sử đầy đủ từ cả 2 bảng để tính đợt và loại trừ trùng chuẩn xác
+                sql_hist = """
                     SELECT "Mã vận đơn", "Thời gian quét", 'Dỡ xuống xe' AS "Loại quét"
                     FROM kpi_base WHERE "Mã vận đơn" IN %s
                     UNION ALL
@@ -177,15 +180,15 @@ def truy_van_du_lieu_tho(hub_chon, loai_chon, tu, den, tim):
             df_hist["Mã chuẩn"] = _chuan_hoa_ma(df_hist["Mã vận đơn"])
             df_hist["Thời gian quét_dt"] = pd.to_datetime(df_hist["Thời gian quét"], errors="coerce")
             
-            # Sắp xếp lịch sử toàn cục theo mã và thời gian tăng dần
+            # Sắp xếp lịch sử toàn cục theo thời gian tăng dần
             df_hist = df_hist.sort_values(by=["Mã chuẩn", "Thời gian quét_dt"])
 
-            # Đánh số đợt dựa trên sự xuất hiện của Dỡ xuống xe
+            # Đánh số đợt dựa vào dỡ xuống xe
             la_do_xuong = (df_hist["Loại quét"] == "Dỡ xuống xe").astype(int)
             df_hist["Đợt"] = la_do_xuong.groupby(df_hist["Mã chuẩn"]).cumsum()
             df_hist["Mã nối OB"] = df_hist["Mã chuẩn"] + "_Đợt" + df_hist["Đợt"].astype(str)
 
-            # Đánh dấu trùng OB trong lịch sử toàn cục
+            # Check trùng OB trong lịch sử
             la_xep_len = df_hist["Loại quét"] == "Xếp lên xe"
             df_hist["Trùng OB (sai thao tác)"] = False
             df_hist.loc[la_xep_len, "Trùng OB (sai thao tác)"] = df_hist[la_xep_len].duplicated(subset=["Mã nối OB"], keep="first")
