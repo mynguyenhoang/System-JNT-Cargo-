@@ -8,21 +8,18 @@ from openpyxl.utils import get_column_letter
 import streamlit as st
 
 # ==========================================
-# 1. CẤU HÌNH TRANG & CỐ ĐỊNH SIDEBAR BÊN HÔNG
+# 1. CẤU HÌNH TRANG & CSS GIAO DIỆN CHUYÊN NGHIỆP
 # ==========================================
 st.set_page_config(
     page_title="QC Operations Hub",
     layout="wide",
-    initial_sidebar_state="expanded",
+    initial_sidebar_state="collapsed",
 )
 
 st.markdown("""
 <style>
     #MainMenu, footer, header { visibility: hidden; }
     .block-container { padding-top: 1rem; padding-bottom: 2rem; }
-    
-    /* Ẩn nút mũi tên thu gọn sidebar để không bị bấm nhầm thụt vào mất tích */
-    [data-testid="collapsedControl"] { display: none !important; }
     
     /* Nút bấm chính màu xanh lá chuẩn doanh nghiệp */
     .stButton button[kind="primary"], .stDownloadButton button {
@@ -671,19 +668,18 @@ def page_bao_cao_ontime():
 
 
 # ==========================================
-# 6. ĐIỀU HƯỚNG CHÍNH (SIDEBAR CỐ ĐỊNH)
+# 6. ĐIỀU HƯỚNG CHÍNH (MENU TAB NGANG TRÊN ĐẦU)
 # ==========================================
 def main():
-    with st.sidebar:
-        st.markdown("## VẬN HÀNH QC")
-        st.markdown("---")
-        menu_lua_chon = st.radio(
-            "ĐIỀU HƯỚNG:",
-            ["SẢN LƯỢNG | 生产", "Linehaul Ontime Departure / 干线准时发车", "Ontime 准时报表"],
-            label_visibility="collapsed"
-        )
-        st.markdown("---")
-        st.caption(f"Hôm nay: {datetime.date.today().strftime('%d/%m/%Y')}")
+    st.markdown("## VẬN HÀNH QC")
+    
+    # Menu chọn trang dạng nút ngang cố định trên đầu, cực kỳ trực quan
+    menu_lua_chon = st.radio(
+        "ĐIỀU HƯỚNG TRANG:",
+        ["SẢN LƯỢNG | 生产", "Linehaul Ontime Departure / 干线准时发车", "Ontime 准时报表"],
+        horizontal=True,
+    )
+    st.markdown("---")
 
     if menu_lua_chon == "SẢN LƯỢNG | 生产":
         page_du_lieu_tho()
