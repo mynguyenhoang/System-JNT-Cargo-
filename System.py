@@ -508,10 +508,13 @@ def page_bao_cao_ontime():
             r9.metric("Tỷ lệ tuyến chính gửi đi đúng hạn / 干线准时发出率", f"{ty_le_lh_gui_di:.2f}%")
 
             # 6. Tuyến nhánh (Shuttle): giống tuyến chính nhưng Type OB = Shuttle
-            df_sh_dung_gio = df_bc[
-                (df_bc["Type OB"].astype(str).str.strip().str.lower() == "shuttle")
-                & (df_bc["Trạng thái"].astype(str).str.strip().str.lower() == "đúng giờ")
-                & (df_bc["Mã chuẩn"] != "")
+            #    Riêng tuyến nhánh KHÔNG loại trừ DT TN / SETN -> dùng dữ liệu gốc df_bc_goc
+            df_sh_goc = df_bc_goc.copy()
+            df_sh_goc["Mã chuẩn"] = _chuan_hoa_ma(df_sh_goc["Mã vận đơn"])
+            df_sh_dung_gio = df_sh_goc[
+                (df_sh_goc["Type OB"].astype(str).str.strip().str.lower() == "shuttle")
+                & (df_sh_goc["Trạng thái"].astype(str).str.strip().str.lower() == "đúng giờ")
+                & (df_sh_goc["Mã chuẩn"] != "")
             ]
             # Số đơn tuyến nhánh đến đúng hạn
             so_sh_den_dung_han = df_sh_dung_gio["Mã chuẩn"].nunique()
