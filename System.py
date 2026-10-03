@@ -263,11 +263,10 @@ def page_du_lieu_tho():
 
 
 # ==========================================
-# 4. TRANG 2: ONTIME XẾP XE (FIX LỖI DATETIME FORMAT)
+# 4. TRANG 2: ONTIME XẾP XE (TÁCH BẠCH LINEHAUL & SHUTTLE)
 # ==========================================
 @st.cache_data(ttl=300, show_spinner="Đang truy vấn tiến độ xếp xe...")
 def truy_van_ontime_xep_xe(hub_chon, tu, den):
-    # Dùng hàm an toàn lọc bỏ qua các dòng lỗi định dạng (như #VALUE!) trong DB
     safe_date_check = """
         CASE 
             WHEN "Date" ~ '^[0-9]{2}/[0-9]{2}/[0-9]{4}$' THEN TO_DATE("Date", 'MM/DD/YYYY')
@@ -323,27 +322,51 @@ def page_ontime_xep_xe():
             df_xh["type_clean"] = df_xh["type"].astype(str).str.strip().str.upper()
             df_xh["ontime_clean"] = df_xh["ontime"].astype(str).str.strip().str.lower()
 
-            tong_linehaul = (df_xh["type_clean"] == "LINEHAUL").sum()
-            tong_shuttle = (df_xh["type_clean"] == "SHUTTLE").sum()
-            
-            so_ontime = (df_xh["ontime_clean"] == "ontime").sum()
-            so_late = (df_xh["ontime_clean"] == "late").sum()
-            ty_le_ontime = (so_ontime / len(df_xh) * 100) if len(df_xh) > 0 else 0
+            # Tách dữ liệu thành 2 nhóm rõ ràng
+            df_lh = df_xh[df_xh["type_clean"] == "LINEHAUL"]
+            df_st = df_xh[df_xh["type_clean"] == "SHUTTLE"]
 
-            m1, m2, m3, m4, m5 = st.columns(5)
-            m1.metric("Tổng Linehaul", f"{tong_linehaul:,}")
-            m2.metric("Tổng Shuttle", f"{tong_shuttle:,}")
-            m3.metric("Số chuyến Ontime", f"{so_ontime:,}")
-            m4.metric("Số chuyến Late", f"{so_late:,}")
-            m5.metric("Tỷ lệ Ontime", f"{ty_le_ontime:.2f}%")
+            # Tạo Tab phân chia Linehaul và Shuttle
+            tab_lh, tab_st = st.tabs(["LINEHAUL", "SHUTTLE"])
 
-            st.dataframe(df_xh.head(500), use_container_width=True, height=420)
+            with tab_lh:
+                st.markdown("### Thống kê tuyến Linehaul")
+                so_ontime_lh = (df_lh["ontime_clean"] == "ontime").sum()
+                so_late_lh = (df_lh["ontime_clean"] == "late").sum()
+                ty_le_lh = (so_ontime_lh / len(df_lh) * 100) if len(df_lh) > 0 else 0
 
+                l1, l2, l3, l4 = st.columns(4)
+                l1.metric("Tổng chuyến Linehaul", f"{len(df_lh):,}")
+                l2.metric("Ontime", f"{so_ontime_lh:,}")
+                l3.metric("Late", f"{so_late_lh:,}")
+                l4.metric("Tỷ lệ Ontime", f"{ty_le_lh:.2f}%")
+
+                st.dataframe(df_lh.head(500), use_container_width=True, height=380)
+
+            with tab_st:
+                st.markdown("### Thống kê tuyến Shuttle")
+                so_ontime_st = (df_st["ontime_clean"] == "ontime").sum()
+                so_late_st = (df_st["ontime_clean"] == "late").sum()
+                ty_le_st = (so_ontime_st / len(df_st) * 100) if len(df_st) > 0 else 0
+
+                s1, s2, s3, s4 = st.columns(4)
+                s1.metric("Tổng chuyến Shuttle", f"{len(df_st):,}")
+                s2.metric("Ontime", f"{so_ontime_st:,}")
+                s3.metric("Late", f"{so_late_st:,}")
+                s4.metric("Tỷ lệ Ontime", f"{ty_le_st:.2f}%")
+
+                st.dataframe(df_st.head(500), use_container_width=True, height=380)
+
+            divider_label("Xuất dữ liệu tổng hợp")
             cot_tai, _ = st.columns(2)
             with cot_tai:
                 st.download_button(
-                    f"Tải Excel ({len(df_xh):,} chuyến xe)",
-                    xuat_excel({"Ontime xep xe": df_xh}),
+                    f"Tải Excel Tổng Hợp ({len(df_xh):,} chuyến xe)",
+                    xuat_excel({
+                        "Linehaul": df_lh, 
+                        "Shuttle": df_st, 
+                        "Tat ca": df_xh
+                    }),
                     file_name=f"ontime_xep_xe_{datetime.date.today()}.xlsx",
                     use_container_width=True,
                     type="primary",
