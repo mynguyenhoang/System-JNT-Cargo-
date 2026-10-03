@@ -8,7 +8,7 @@ from openpyxl.utils import get_column_letter
 import streamlit as st
 
 # ==========================================
-# 1. CẤU HÌNH TRANG & CSS (GIAO DIỆN SÁNG CHUYÊN NGHIỆP)
+# 1. CẤU HÌNH TRANG & CSS GỌN GÀNG, SẠCH SẼ
 # ==========================================
 st.set_page_config(
     page_title="QC Operations Hub",
@@ -18,35 +18,10 @@ st.set_page_config(
 
 st.markdown("""
 <style>
-    /* Tổng thể nền sáng dịu mắt */
-    .stApp {
-        background-color: #f8f9fa;
-        color: #212529;
-    }
-    
     #MainMenu, footer, header { visibility: hidden; }
     .block-container { padding-top: 1.5rem; padding-bottom: 2rem; }
     
-    /* Sidebar gọn gàng, chuyên nghiệp */
-    [data-testid="stSidebar"] {
-        background-color: #ffffff;
-        border-right: 1px solid #e9ecef;
-    }
-    
-    /* Card metric */
-    [data-testid="metric-container"] {
-        background: #ffffff;
-        border: 1px solid #dee2e6;
-        border-radius: 8px;
-        padding: 1.2rem !important;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.04);
-    }
-    [data-testid="metric-container"] label {
-        color: #495057 !important;
-        font-weight: 600 !important;
-    }
-    
-    /* Nút bấm primary và download màu xanh lá chuẩn */
+    /* Nút bấm chính màu xanh lá chuẩn */
     .stButton button[kind="primary"], .stDownloadButton button {
         background-color: #2e7d32 !important;
         color: white !important;
@@ -58,7 +33,7 @@ st.markdown("""
         background-color: #1b5e20 !important;
     }
     
-    /* Tiêu đề chính */
+    /* Tiêu đề trang */
     .main-header {
         background: linear-gradient(135deg, #2e7d32 0%, #1b5e20 100%);
         padding: 20px 30px;
