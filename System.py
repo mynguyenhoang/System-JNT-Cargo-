@@ -304,7 +304,7 @@ def page_ontime_xep_xe():
             c1, c2, c3 = st.columns(3)
             hub_xh = c1.multiselect("Bộ phận xếp hàng (Hub)", ["HCM HUB", "BN HUB", "SH DC", "CTO SC"], placeholder="Tất cả")
             tu_xh = c2.date_input("Từ ngày vận hành", value=datetime.date.today(), format="YYYY-MM-DD")
-            den_xh = c3.date_input("Đến ngày vận hành", value=datetime.date.today(), format="YYYY-MM-DD")
+            den_xh = c3.date_input("Den ngày vận hành", value=datetime.date.today(), format="YYYY-MM-DD")
             
             submit_xh = st.form_submit_button("TRUY VẤN TIẾN ĐỘ", type="primary", use_container_width=True)
 
@@ -373,11 +373,111 @@ def page_ontime_xep_xe():
 
 
 # ==========================================
-# 5. TRANG 3: Ontime 准时报表
+# 5. TRANG 3: Ontime 准时报表 (MỚI THEO LOGIC YÊU CẦU)
 # ==========================================
+@st.cache_data(ttl=300, show_spinner="Đang truy vấn báo cáo Ontime...")
+def truy_van_bao_cao_ontime(hub_chon, tu, den):
+    safe_date_check = """
+        CASE 
+            WHEN "Ngày vận hành" ~ '^[0-9]{2}/[0-9]{2}/[0-9]{4}$' THEN TO_DATE("Ngày vận hành", 'MM/DD/YYYY')
+            WHEN "Ngày vận hành" ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' THEN "Ngày vận hành"::date
+            ELSE NULL
+        END
+    """
+    sql = f"""
+        SELECT * FROM kpi_base
+        WHERE ("Ngày vận hành" ~ '^[0-9]{{2}}/[0-9]{{2}}/[0-9]{{4}}$' OR "Ngày vận hành" ~ '^[0-9]{{4}}-[0-9]{{2}}-[0-9]{{2}}$')
+    """
+    dk, params = [], []
+    if hub_chon:
+        dk.append(f'"Bưu cục quét" IN ({",".join(["%s"] * len(hub_chon))})')
+        params += list(hub_chon)
+    if tu:
+        dk.append(f"({safe_date_check}) >= %s")
+        params.append(tu)
+    if den:
+        dk.append(f"({safe_date_check}) <= %s")
+        params.append(den)
+        
+    if dk:
+        sql += " AND " + " AND ".join(dk)
+        
+    con = ket_noi()
+    df = pd.read_sql(sql, con, params=params)
+    con.close()
+    return df
+
 def page_bao_cao_ontime():
     st.markdown('<div class="main-header"><h1>Ontime 准时报表</h1></div>', unsafe_allow_html=True)
-    st.info("Trang báo cáo tổng hợp Ontime đang được xây dựng.")
+    
+    with st.expander("BỘ LỌC TÌM KIẾM", expanded=True):
+        with st.form("form_bao_cao_ontime"):
+            c1, c2, c3 = st.columns(3)
+            hub_bc = c1.multiselect("Bưu cục quét (Hub)", ["HCM HUB", "BN HUB", "SH DC", "CTO SC"], placeholder="Tất cả")
+            tu_bc = c2.date_input("Từ ngày vận hành", value=datetime.date.today(), format="YYYY-MM-DD")
+            den_bc = c3.date_input("Đến ngày vận hành", value=datetime.date.today(), format="YYYY-MM-DD")
+            
+            submit_bc = st.form_submit_button("TRUY VẤN BÁO CÁO", type="primary", use_container_width=True)
+
+    if submit_bc:
+        st.session_state["kq_bao_cao_ontime"] = truy_van_bao_cao_ontime(
+            tuple(hub_bc), str(tu_bc), str(den_bc)
+        )
+
+    if "kq_bao_cao_ontime" in st.session_state:
+        df_bc = st.session_state["kq_bao_cao_ontime"]
+        divider_label("Kết quả báo cáo tổng hợp")
+
+        if not df_bc.empty:
+            # 1. Tính tổng Volume IB (Unique Mã vận đơn dỡ xuống xe ở kpi_base đã lọc)
+            df_bc["Mã chuẩn"] = _chuan_hoa_ma(df_bc["Mã vận đơn"])
+            tong_ib_unique = df_bc["Mã chuẩn"].nunique()
+
+            # 2. Tổng số đơn hàng được gửi đúng COT (按COT准时出库的订单量) - Unique theo Mã vận đơn
+            df_cot = df_bc[df_bc["Ontime"].astype(str).str.strip().str.lower() == "giao đúng cot"]
+            tong_dung_cot = df_cot["Mã chuẩn"].nunique()
+
+            # Tỷ lệ COT = (Số đơn đúng COT / Tổng volume IB)
+            ty_le_cot = (tong_dung_cot / tong_ib_unique * 100) if tong_ib_unique > 0 else 0
+
+            # 3. Tổng lượng hàng Inbound 1AM (1AM 入库件量) - Unique Mã vận đơn có Ontime1AM = "trước"
+            df_1am_truoc = df_bc[df_bc["Ontime1AM"].astype(str).str.strip().str.lower() == "trước"]
+            tong_1am_truoc = df_1am_truoc["Mã chuẩn"].nunique()
+
+            # 4. Số đơn đến trước 1AM VÀ Giao đúng COT - Unique Mã vận đơn
+            df_1am_cot = df_1am_truoc[df_1am_truoc["Ontime"].astype(str).str.strip().str.lower() == "giao đúng cot"]
+            tong_1am_dung_cot = df_1am_cot["Mã chuẩn"].nunique()
+
+            # Tỷ lệ 1AM On-time = (Số đơn đến trước 1AM & đúng COT / Tổng số đơn đến trước 1AM)
+            ty_le_1am = (tong_1am_dung_cot / tong_1am_truoc * 100) if tong_1am_truoc > 0 else 0
+
+            # Hiển thị các chỉ số
+            st.markdown("### 📊 Chỉ số Hiệu suất COT & 1AM")
+            r1, r2, r3 = st.columns(3)
+            r1.metric("Tổng volume IB (Unique)", f"{tong_ib_unique:,}")
+            r2.metric("Tổng số đơn hàng được gửi đúng COT (按COT准时出库的订单量)", f"{tong_dung_cot:,}")
+            r3.metric("Tỷ lệ COT", f"{ty_le_cot:.2f}%")
+
+            st.markdown("---")
+            r4, r5, r6 = st.columns(3)
+            r4.metric("Tổng lượng hàng Inbound 1AM (1AM 入库件量)", f"{tong_1am_truoc:,}")
+            r5.metric("Số đơn trước 1AM & Đúng COT", f"{tong_1am_dung_cot:,}")
+            r6.metric("Tỷ lệ On-time 1AM", f"{ty_le_1am:.2f}%")
+
+            divider_label("Chi tiết dữ liệu báo cáo")
+            st.dataframe(df_bc.head(500), use_container_width=True, height=400)
+
+            cot_tai, _ = st.columns(2)
+            with cot_tai:
+                st.download_button(
+                    f"Tải Excel Báo Cáo ({len(df_bc):,} dòng)",
+                    xuat_excel({"Bao cao Ontime": df_bc}),
+                    file_name=f"bao_cao_ontime_{datetime.date.today()}.xlsx",
+                    use_container_width=True,
+                    type="primary",
+                )
+        else:
+            st.warning("Không tìm thấy dữ liệu phù hợp với bộ lọc!")
 
 
 # ==========================================
