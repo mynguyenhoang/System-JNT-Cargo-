@@ -8,18 +8,18 @@ from openpyxl.utils import get_column_letter
 import streamlit as st
 
 # ==========================================
-# 1. CẤU HÌNH TRANG & CỐ ĐỊNH SIDEBAR HIỆN RA
+# 1. CẤU HÌNH TRANG & CSS GIAO DIỆN CHUYÊN NGHIỆP
 # ==========================================
 st.set_page_config(
     page_title="QC Operations Hub",
     layout="wide",
-    initial_sidebar_state="expanded",  # Cố định luôn mở thanh menu bên trái
+    initial_sidebar_state="collapsed",
 )
 
 st.markdown("""
 <style>
     #MainMenu, footer, header { visibility: hidden; }
-    .block-container { padding-top: 1.5rem; padding-bottom: 2rem; }
+    .block-container { padding-top: 1rem; padding-bottom: 2rem; }
     
     /* Nút bấm chính màu xanh lá chuẩn doanh nghiệp */
     .stButton button[kind="primary"], .stDownloadButton button {
@@ -36,9 +36,9 @@ st.markdown("""
     /* Tiêu đề trang */
     .main-header {
         background: linear-gradient(135deg, #2e7d32 0%, #1b5e20 100%);
-        padding: 20px 30px;
+        padding: 18px 25px;
         border-radius: 8px;
-        margin-bottom: 25px;
+        margin-bottom: 20px;
         color: white;
         box-shadow: 0 2px 4px rgba(0,0,0,0.06);
     }
@@ -668,19 +668,19 @@ def page_bao_cao_ontime():
 
 
 # ==========================================
-# 6. ĐIỀU HƯỚNG CHÍNH (SIDEBAR)
+# 6. ĐIỀU HƯỚNG CHÍNH (MENU NGANG TRÊN ĐẦU)
 # ==========================================
 def main():
-    with st.sidebar:
-        st.markdown("## VẬN HÀNH QC")
-        st.markdown("---")
-        menu_lua_chon = st.radio(
-            "ĐIỀU HƯỚNG:",
-            ["SẢN LƯỢNG | 生产", "Linehaul Ontime Departure / 干线准时发车", "Ontime 准时报表"],
-            label_visibility="collapsed"
-        )
-        st.markdown("---")
-        st.caption(f"Hôm nay: {datetime.date.today().strftime('%d/%m/%Y')}")
+    st.markdown("## VẬN HÀNH QC")
+    
+    # Tạo menu dạng radio ngang phía trên đầu ứng dụng
+    menu_lua_chon = st.radio(
+        "ĐIỀU HƯỚNG:",
+        ["SẢN LƯỢNG | 生产", "Linehaul Ontime Departure / 干线准时发车", "Ontime 准时报表"],
+        horizontal=True,
+        label_visibility="collapsed"
+    )
+    st.markdown("---")
 
     if menu_lua_chon == "SẢN LƯỢNG | 生产":
         page_du_lieu_tho()
