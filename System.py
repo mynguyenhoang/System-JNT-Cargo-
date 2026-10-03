@@ -54,8 +54,8 @@ st.markdown("""
 # ==========================================
 # 2. CÁC HÀM TIỆN ÍCH CƠ BẢN
 # ==========================================
-# Gán cứng DB_URL trực tiếp để không cần cài Secrets trên Streamlit Cloud
-DB_URL = "postgresql://postgres.hpjxaxspjgsnsoxhvskm:%40Tata1900561558a@aws-0-ap-southeast-2.pooler.supabase.com:5432/postgres?sslmode=require"
+# Đã dán đúng password chạy được từ nãy
+DB_URL = "postgresql://postgres.hpjxaxspjgsnsoxhvskm:07736215400394219723@aws-0-ap-southeast-2.pooler.supabase.com:5432/postgres?sslmode=require"
 
 def ket_noi():
     try:
