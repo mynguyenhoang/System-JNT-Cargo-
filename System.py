@@ -304,7 +304,7 @@ def page_ontime_xep_xe():
             c1, c2, c3 = st.columns(3)
             hub_xh = c1.multiselect("Bộ phận xếp hàng (Hub)", ["HCM HUB", "BN HUB", "SH DC", "CTO SC"], placeholder="Tất cả")
             tu_xh = c2.date_input("Từ ngày vận hành", value=datetime.date.today(), format="YYYY-MM-DD")
-            den_xh = c3.date_input("Den ngày vận hành", value=datetime.date.today(), format="YYYY-MM-DD")
+            den_xh = c3.date_input("Đến ngày vận hành", value=datetime.date.today(), format="YYYY-MM-DD")
             
             submit_xh = st.form_submit_button("TRUY VẤN TIẾN ĐỘ", type="primary", use_container_width=True)
 
@@ -373,7 +373,7 @@ def page_ontime_xep_xe():
 
 
 # ==========================================
-# 5. TRANG 3: Ontime 准时报表 (MỚI THEO LOGIC YÊU CẦU)
+# 5. TRANG 3: Ontime 准时报表
 # ==========================================
 @st.cache_data(ttl=300, show_spinner="Đang truy vấn báo cáo Ontime...")
 def truy_van_bao_cao_ontime(hub_chon, tu, den):
@@ -429,32 +429,30 @@ def page_bao_cao_ontime():
         divider_label("Kết quả báo cáo tổng hợp")
 
         if not df_bc.empty:
-            # 1. Tính tổng Volume IB (Unique Mã vận đơn dỡ xuống xe ở kpi_base đã lọc)
+            # 1. Tổng volume IB (Đã chuẩn hóa và unique mã vận đơn)
             df_bc["Mã chuẩn"] = _chuan_hoa_ma(df_bc["Mã vận đơn"])
-            tong_ib_unique = df_bc["Mã chuẩn"].nunique()
+            tong_ib = df_bc["Mã chuẩn"].nunique()
 
-            # 2. Tổng số đơn hàng được gửi đúng COT (按COT准时出库的订单量) - Unique theo Mã vận đơn
+            # 2. Tổng số đơn hàng được gửi đúng COT (按COT准时出库的订单量)
             df_cot = df_bc[df_bc["Ontime"].astype(str).str.strip().str.lower() == "giao đúng cot"]
             tong_dung_cot = df_cot["Mã chuẩn"].nunique()
 
-            # Tỷ lệ COT = (Số đơn đúng COT / Tổng volume IB)
-            ty_le_cot = (tong_dung_cot / tong_ib_unique * 100) if tong_ib_unique > 0 else 0
+            ty_le_cot = (tong_dung_cot / tong_ib * 100) if tong_ib > 0 else 0
 
-            # 3. Tổng lượng hàng Inbound 1AM (1AM 入库件量) - Unique Mã vận đơn có Ontime1AM = "trước"
+            # 3. Tổng lượng hàng Inbound 1AM (1AM 入库件量)
             df_1am_truoc = df_bc[df_bc["Ontime1AM"].astype(str).str.strip().str.lower() == "trước"]
             tong_1am_truoc = df_1am_truoc["Mã chuẩn"].nunique()
 
-            # 4. Số đơn đến trước 1AM VÀ Giao đúng COT - Unique Mã vận đơn
+            # 4. Số đơn đến trước 1AM VÀ Giao đúng COT
             df_1am_cot = df_1am_truoc[df_1am_truoc["Ontime"].astype(str).str.strip().str.lower() == "giao đúng cot"]
             tong_1am_dung_cot = df_1am_cot["Mã chuẩn"].nunique()
 
-            # Tỷ lệ 1AM On-time = (Số đơn đến trước 1AM & đúng COT / Tổng số đơn đến trước 1AM)
             ty_le_1am = (tong_1am_dung_cot / tong_1am_truoc * 100) if tong_1am_truoc > 0 else 0
 
-            # Hiển thị các chỉ số
-            st.markdown("### 📊 Chỉ số Hiệu suất COT & 1AM")
+            # Hiển thị các chỉ số gọn gàng, không icon
+            st.markdown("### Chỉ số Hiệu suất COT & 1AM")
             r1, r2, r3 = st.columns(3)
-            r1.metric("Tổng volume IB (Unique)", f"{tong_ib_unique:,}")
+            r1.metric("Tổng volume IB", f"{tong_ib:,}")
             r2.metric("Tổng số đơn hàng được gửi đúng COT (按COT准时出库的订单量)", f"{tong_dung_cot:,}")
             r3.metric("Tỷ lệ COT", f"{ty_le_cot:.2f}%")
 
