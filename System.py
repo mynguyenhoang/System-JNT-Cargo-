@@ -52,10 +52,8 @@ st.markdown("""
 # ==========================================
 DB_URL = "postgresql://postgres.hpjxaxspjgsnsoxhvskm:07736215400394219723@aws-0-ap-southeast-2.pooler.supabase.com:5432/postgres?sslmode=require"
 
-# Trang "Ontime 准时报表": các Bưu cục (cột "Bưu cục") bị loại khỏi tổng IB và COT.
-# So khớp không phân biệt hoa/thường và bỏ khoảng trắng ("DT TN" = "DTTN").
+# Các Bưu cục bị loại khỏi tổng IB và COT ở trang Ontime 准时报表
 BUU_CUC_LOAI_TRU = {"DTTN", "SETN"}
-
 
 def ket_noi():
     try:
@@ -71,7 +69,6 @@ def _chuan_hoa_ma(series):
     return s.replace({"NAN": "", "NONE": ""})
 
 def _khoa_buu_cuc(series):
-    """Chuẩn hóa tên bưu cục để so khớp: IN HOA + bỏ mọi khoảng trắng."""
     return series.astype(str).str.upper().str.replace(r"\s+", "", regex=True)
 
 def divider_label(text):
@@ -441,8 +438,6 @@ def page_bao_cao_ontime():
             st.warning("Không tìm thấy dữ liệu phù hợp với bộ lọc!")
             return
 
-        # Loại trừ các đơn có Bưu cục (đích) thuộc DT TN / SETN.
-        # Chỉ áp dụng ở trang này; trang SẢN LƯỢNG vẫn giữ nguyên toàn bộ số IB.
         mask_loai_tru = _khoa_buu_cuc(df_bc_goc["Bưu cục"]).isin(BUU_CUC_LOAI_TRU)
         df_bc = df_bc_goc.loc[~mask_loai_tru].copy()
 
@@ -450,25 +445,18 @@ def page_bao_cao_ontime():
             st.warning("Sau khi loại trừ DT TN / SETN không còn dữ liệu nào.")
             return
 
-        # 1. Tổng volume IB (đã bỏ DT TN, SETN; chuẩn hóa và unique mã vận đơn)
         df_bc["Mã chuẩn"] = _chuan_hoa_ma(df_bc["Mã vận đơn"])
         tong_ib = df_bc["Mã chuẩn"].nunique()
 
-        # 2. Tổng số đơn hàng được gửi đúng COT (按COT准时出库的订单量)
         df_cot = df_bc[df_bc["Ontime"].astype(str).str.strip().str.lower() == "giao đúng cot"]
         tong_dung_cot = df_cot["Mã chuẩn"].nunique()
-
-        # Tỷ lệ COT = đúng COT / tổng IB (đã loại trừ)
         ty_le_cot = (tong_dung_cot / tong_ib * 100) if tong_ib > 0 else 0
 
-        # 3. Tổng lượng hàng Inbound 1AM (1AM 入库件量)
         df_1am_truoc = df_bc[df_bc["Ontime1AM"].astype(str).str.strip().str.lower() == "trước"]
         tong_1am_truoc = df_1am_truoc["Mã chuẩn"].nunique()
 
-        # 4. Số đơn đến trước 1AM VÀ Giao đúng COT
         df_1am_cot = df_1am_truoc[df_1am_truoc["Ontime"].astype(str).str.strip().str.lower() == "giao đúng cot"]
         tong_1am_dung_cot = df_1am_cot["Mã chuẩn"].nunique()
-
         ty_le_1am = (tong_1am_dung_cot / tong_1am_truoc * 100) if tong_1am_truoc > 0 else 0
 
         st.markdown("### Chỉ số Hiệu suất Ontime")
@@ -483,8 +471,6 @@ def page_bao_cao_ontime():
         r5.metric("Số đơn trước 1AM & Đúng COT", f"{tong_1am_dung_cot:,}")
         r6.metric("Tỷ lệ On-time 1AM", f"{ty_le_1am:.2f}%")
 
-        # 5. Tuyến chính (Linehaul): lọc Type OB = Linehaul + Trạng thái = Đúng giờ,
-        #    đếm unique Mã vận đơn (giống công thức UNIQUE/FILTER trên Feishu)
         st.markdown("---")
         if "Type OB" in df_bc.columns and "Trạng thái" in df_bc.columns:
             df_lh_dung_gio = df_bc[
@@ -492,14 +478,10 @@ def page_bao_cao_ontime():
                 & (df_bc["Trạng thái"].astype(str).str.strip().str.lower() == "đúng giờ")
                 & (df_bc["Mã chuẩn"] != "")
             ]
-            # Số đơn tuyến chính đến đúng hạn
             so_lh_den_dung_han = df_lh_dung_gio["Mã chuẩn"].nunique()
-            # Số đơn tuyến chính gửi đi đúng hạn (thêm điều kiện Ontime = Giao đúng COT)
             so_lh_gui_dung_han = df_lh_dung_gio[
                 df_lh_dung_gio["Ontime"].astype(str).str.strip().str.lower() == "giao đúng cot"
             ]["Mã chuẩn"].nunique()
-
-            # Tỷ lệ = Số đơn tuyến chính gửi đi đúng hạn / Số đơn tuyến chính đến đúng hạn
             ty_le_lh_gui_di = (so_lh_gui_dung_han / so_lh_den_dung_han * 100) if so_lh_den_dung_han > 0 else 0
 
             r7, r8, r9 = st.columns(3)
@@ -507,22 +489,19 @@ def page_bao_cao_ontime():
             r8.metric("Số đơn tuyến chính gửi đi đúng hạn / 干线准时发出票数", f"{so_lh_gui_dung_han:,}")
             r9.metric("Tỷ lệ tuyến chính gửi đi đúng hạn / 干线准时发出率", f"{ty_le_lh_gui_di:.2f}%")
 
-            # 6. Tuyến nhánh (Shuttle): giống tuyến chính nhưng Type OB = Shuttle
-            #    Riêng tuyến nhánh KHÔNG loại trừ DT TN / SETN -> dùng dữ liệu gốc df_bc_goc
+            # Tuyến nhánh (Shuttle): dùng df_bc_goc nhưng chuẩn hóa bám sát bộ lọc
             df_sh_goc = df_bc_goc.copy()
             df_sh_goc["Mã chuẩn"] = _chuan_hoa_ma(df_sh_goc["Mã vận đơn"])
+            
             df_sh_dung_gio = df_sh_goc[
                 (df_sh_goc["Type OB"].astype(str).str.strip().str.lower() == "shuttle")
                 & (df_sh_goc["Trạng thái"].astype(str).str.strip().str.lower() == "đúng giờ")
                 & (df_sh_goc["Mã chuẩn"] != "")
             ]
-            # Số đơn tuyến nhánh đến đúng hạn
             so_sh_den_dung_han = df_sh_dung_gio["Mã chuẩn"].nunique()
-            # Số đơn tuyến nhánh gửi đi đúng hạn (thêm điều kiện Ontime = Giao đúng COT)
             so_sh_gui_dung_han = df_sh_dung_gio[
                 df_sh_dung_gio["Ontime"].astype(str).str.strip().str.lower() == "giao đúng cot"
             ]["Mã chuẩn"].nunique()
-            # Tỷ lệ = gửi đi đúng hạn / đến đúng hạn
             ty_le_sh_gui_di = (so_sh_gui_dung_han / so_sh_den_dung_han * 100) if so_sh_den_dung_han > 0 else 0
 
             st.markdown("---")
@@ -531,7 +510,7 @@ def page_bao_cao_ontime():
             r11.metric("Số đơn tuyến nhánh gửi đi đúng hạn / 支线准时发出票数", f"{so_sh_gui_dung_han:,}")
             r12.metric("Tỷ lệ tuyến nhánh gửi đi đúng hạn / 支线准时发出率", f"{ty_le_sh_gui_di:.2f}%")
         else:
-            st.warning("Bảng kpi_base chưa có cột 'Type OB' / 'Trạng thái' nên chưa tính được 2 chỉ số tuyến chính.")
+            st.warning("Bảng kpi_base chưa có cột 'Type OB' / 'Trạng thái' nên chưa tính được chỉ số tuyến.")
 
         divider_label("Chi tiết dữ liệu báo cáo")
         st.dataframe(df_bc.head(500), use_container_width=True, height=400)
