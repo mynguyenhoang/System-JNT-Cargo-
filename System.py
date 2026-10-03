@@ -83,9 +83,9 @@ def xuat_excel(df_dict):
     return buf.getvalue()
 
 # ==========================================
-# 3. TRANG 1: DỮ LIỆU THÔ (QUÉT HÀNG)
+# 3. TRANG 1: SẢN LƯỢNG | 生产
 # ==========================================
-@st.cache_data(ttl=300, show_spinner="Đang truy vấn dữ liệu quét hàng...")
+@st.cache_data(ttl=300, show_spinner="Đang truy vấn dữ liệu sản lượng...")
 def truy_van_du_lieu_tho(hub_chon, loai_chon, tu, den, tim):
     df_list = []
     safe_date = """(CASE WHEN "Ngày vận hành" LIKE '%%/%%' THEN TO_DATE("Ngày vận hành", 'MM/DD/YYYY') ELSE "Ngày vận hành"::date END)"""
@@ -192,7 +192,7 @@ def truy_van_du_lieu_tho(hub_chon, loai_chon, tu, den, tim):
     return df
 
 def page_du_lieu_tho():
-    st.markdown('<div class="main-header"><h1>TRUY VẤN QUÉT HÀNG</h1><p>Dữ liệu IB lấy từ kpi_base | Dữ liệu OB lấy từ raw_quet_hang_xep_len_xe</p></div>', unsafe_allow_html=True)
+    st.markdown('<div class="main-header"><h1>SẢN LƯỢNG | 生产</h1><p>Truy vấn dữ liệu quét hàng vận hành</p></div>', unsafe_allow_html=True)
     
     with st.expander("BỘ LỌC TÌM KIẾM", expanded=True):
         with st.form("bo_loc"):
@@ -263,7 +263,7 @@ def page_du_lieu_tho():
 
 
 # ==========================================
-# 4. TRANG 2: ONTIME XẾP XE (TÁCH BẠCH LINEHAUL & SHUTTLE)
+# 4. TRANG 2: Linehaul Ontime Departure / 干线准时发车
 # ==========================================
 @st.cache_data(ttl=300, show_spinner="Đang truy vấn tiến độ xếp xe...")
 def truy_van_ontime_xep_xe(hub_chon, tu, den):
@@ -298,7 +298,7 @@ def truy_van_ontime_xep_xe(hub_chon, tu, den):
     return df
 
 def page_ontime_xep_xe():
-    st.markdown('<div class="main-header"><h1>ONTIME XẾP XE</h1><p>Theo dõi tiến độ chuyến xe giao đi từ bảng raw_quan_ly_tien_do_xep_hang</p></div>', unsafe_allow_html=True)
+    st.markdown('<div class="main-header"><h1>Linehaul Ontime Departure / 干线准时发车</h1><p>Theo dõi tiến độ chuyến xe giao đi</p></div>', unsafe_allow_html=True)
     
     with st.expander("BỘ LỌC TÌM KIẾM", expanded=True):
         with st.form("form_ontime_xh"):
@@ -322,11 +322,9 @@ def page_ontime_xep_xe():
             df_xh["type_clean"] = df_xh["type"].astype(str).str.strip().str.upper()
             df_xh["ontime_clean"] = df_xh["ontime"].astype(str).str.strip().str.lower()
 
-            # Tách dữ liệu thành 2 nhóm rõ ràng
             df_lh = df_xh[df_xh["type_clean"] == "LINEHAUL"]
             df_st = df_xh[df_xh["type_clean"] == "SHUTTLE"]
 
-            # Tạo Tab phân chia Linehaul và Shuttle
             tab_lh, tab_st = st.tabs(["LINEHAUL", "SHUTTLE"])
 
             with tab_lh:
@@ -375,13 +373,16 @@ def page_ontime_xep_xe():
             st.warning("Không tìm thấy dữ liệu phù hợp với bộ lọc!")
 
 
+# ==========================================
+# 5. TRANG 3: Ontime 准时报表
+# ==========================================
 def page_bao_cao_ontime():
-    st.title("Đang chờ update logic...")
-    st.info("Test xong trang Ontime Xếp xe thì nhắn mình để update phần này nhé!")
+    st.markdown('<div class="main-header"><h1>Ontime 准时报表</h1><p>Báo cáo tỷ lệ đúng giờ tổng hợp</p></div>', unsafe_allow_html=True)
+    st.info("Trang báo cáo tổng hợp Ontime đang được xây dựng. Bạn có thể nhắn thêm yêu cầu chi tiết để tôi hoàn thiện nốt nhé!")
 
 
 # ==========================================
-# 5. ĐIỀU HƯỚNG CHÍNH (SIDEBAR)
+# 6. ĐIỀU HƯỚNG CHÍNH (SIDEBAR)
 # ==========================================
 def main():
     with st.sidebar:
@@ -389,17 +390,17 @@ def main():
         st.markdown("---")
         menu_lua_chon = st.radio(
             "ĐIỀU HƯỚNG:",
-            ["Dữ liệu thô", "Ontime Xếp xe", "Báo cáo Ontime"],
+            ["SẢN LƯỢNG | 生产", "Linehaul Ontime Departure / 干线准时发车", "Ontime 准时报表"],
             label_visibility="collapsed"
         )
         st.markdown("---")
         st.caption(f"Hôm nay: {datetime.date.today().strftime('%d/%m/%Y')}")
 
-    if menu_lua_chon == "Dữ liệu thô":
+    if menu_lua_chon == "SẢN LƯỢNG | 生产":
         page_du_lieu_tho()
-    elif menu_lua_chon == "Ontime Xếp xe":
+    elif menu_lua_chon == "Linehaul Ontime Departure / 干线准时发车":
         page_ontime_xep_xe()
-    elif menu_lua_chon == "Báo cáo Ontime":
+    elif menu_lua_chon == "Ontime 准时报表":
         page_bao_cao_ontime()
 
 if __name__ == "__main__":
