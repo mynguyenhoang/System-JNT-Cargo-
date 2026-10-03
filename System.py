@@ -621,21 +621,20 @@ def page_bao_cao_ontime():
         divider_label("Chi tiết dữ liệu báo cáo")
         st.dataframe(df_bc.head(500), use_container_width=True, height=400)
 
-        # ── THÊM OPTION LỰA CHỌN NHÓM DỮ LIỆU ĐỂ ĐẨY LÊN FEISHU ──
+        # ── LỰA CHỌN ĐỦ 5 NHÓM ĐÃ BỎ HẾT NGOẶC ĐƠN ──
         st.markdown("#### Tùy chọn xuất dữ liệu / Đẩy lên Feishu")
         chon_nhom_push = st.selectbox(
             "Chọn nhóm dữ liệu bạn muốn thao tác:",
             [
-                "1. Toàn bộ báo cáo chi tiết (df_bc)",
+                "1. Toàn bộ dữ liệu báo cáo Ontime",
                 "2. Đơn hàng gửi đúng COT",
-                "3. Đơn hàng Inbound 1AM (Trước 1AM)",
+                "3. Inbound 1AM",
                 "4. Tuyến chính (Linehaul) gửi đúng hạn",
                 "5. Tuyến nhánh (Shuttle) gửi đúng hạn"
             ],
             key="select_nhom_push"
         )
 
-        # Xác định DataFrame tương ứng dựa theo lựa chọn của ông
         if "1." in chon_nhom_push:
             df_push = df_bc
             sheet_push_name = "BaoCaoOntime_ToanBo"
