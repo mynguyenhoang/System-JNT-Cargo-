@@ -83,13 +83,11 @@ def xuat_excel(df_dict):
     return buf.getvalue()
 
 # ==========================================
-# 3. LOGIC TRUY VẤN DỮ LIỆU THÔ (DÙNG CHUNG HÀM ÉP NGÀY CHO CẢ 2 BẢNG)
+# 3. LOGIC TRUY VẤN DỮ LIỆU THÔ
 # ==========================================
 @st.cache_data(ttl=300, show_spinner="Đang truy vấn dữ liệu từ Supabase...")
 def truy_van_du_lieu_tho(hub_chon, loai_chon, tu, den, tim):
     df_list = []
-    
-    # Hàm an toàn xử lý cả 2 bảng vì cả kpi_base và raw_quet_hang_xep_len_xe đều có Ngày vận hành dạng 'MM/DD/YYYY'
     safe_date = """(CASE WHEN "Ngày vận hành" LIKE '%%/%%' THEN TO_DATE("Ngày vận hành", 'MM/DD/YYYY') ELSE "Ngày vận hành"::date END)"""
 
     # A. Truy vấn IB từ kpi_base
@@ -121,7 +119,7 @@ def truy_van_du_lieu_tho(hub_chon, loai_chon, tu, den, tim):
         con.close()
         df_list.append(df_ib)
 
-    # B. Truy vấn OB từ raw_quet_hang_xep_len_xe (Đã dùng đúng cột Ngày vận hành)
+    # B. Truy vấn OB từ raw_quet_hang_xep_len_xe
     if not loai_chon or "Xếp lên xe" in loai_chon:
         sql_ob = f"""
             SELECT "Mã vận đơn", "Thời gian quét", "Bưu cục quét" AS "Hub", 
@@ -166,7 +164,6 @@ def truy_van_du_lieu_tho(hub_chon, loai_chon, tu, den, tim):
             for i in range(0, len(danh_sach_mvd), chunk_size):
                 chunk = tuple(danh_sach_mvd[i : i + chunk_size])
                 
-                # Gom lịch sử đầy đủ từ cả 2 bảng để tính đợt và loại trừ trùng chuẩn xác
                 sql_hist = """
                     SELECT "Mã vận đơn", "Thời gian quét", 'Dỡ xuống xe' AS "Loại quét"
                     FROM kpi_base WHERE "Mã vận đơn" IN %s
@@ -181,15 +178,12 @@ def truy_van_du_lieu_tho(hub_chon, loai_chon, tu, den, tim):
             df_hist["Mã chuẩn"] = _chuan_hoa_ma(df_hist["Mã vận đơn"])
             df_hist["Thời gian quét_dt"] = pd.to_datetime(df_hist["Thời gian quét"], errors="coerce")
             
-            # Sắp xếp lịch sử toàn cục theo thời gian tăng dần
             df_hist = df_hist.sort_values(by=["Mã chuẩn", "Thời gian quét_dt"])
 
-            # Đánh số đợt dựa vào dỡ xuống xe
             la_do_xuong = (df_hist["Loại quét"] == "Dỡ xuống xe").astype(int)
             df_hist["Đợt"] = la_do_xuong.groupby(df_hist["Mã chuẩn"]).cumsum()
             df_hist["Mã nối OB"] = df_hist["Mã chuẩn"] + "_Đợt" + df_hist["Đợt"].astype(str)
 
-            # Check trùng OB trong lịch sử
             la_xep_len = df_hist["Loại quét"] == "Xếp lên xe"
             df_hist["Trùng OB (sai thao tác)"] = False
             df_hist.loc[la_xep_len, "Trùng OB (sai thao tác)"] = df_hist[la_xep_len].duplicated(subset=["Mã nối OB"], keep="first")
@@ -206,7 +200,8 @@ def truy_van_du_lieu_tho(hub_chon, loai_chon, tu, den, tim):
             df["Mã nối OB"] = df["Key_map"].map(map_ma_noi)
             df["Trùng OB (sai thao tác)"] = df["Key_map"].map(map_trung).fillna(False)
             
-            df = df.drop(columns=["Mã chuẩn", "Thời gian quét_dt", "Key_map"])
+            # Loại bỏ cột "Trùng OB (sai thao tác)" không cần thiết theo yêu cầu
+            df = df.drop(columns=["Mã chuẩn", "Thời gian quét_dt", "Key_map", "Trùng OB (sai thao tác)"], errors="ignore")
             df = df.sort_values(by="Thời gian quét", ascending=False)
 
     return df
@@ -240,7 +235,7 @@ def page_du_lieu_tho():
         divider_label("Kết quả truy vấn")
 
         if not df.empty:
-            m1, m2, m3, m4 = st.columns(4)
+            m1, m2, m3, _ = st.columns(4)
             m1.metric("Số dòng", f"{len(df):,}")
             
             if "Mã nối OB" in df.columns:
@@ -262,9 +257,6 @@ def page_du_lieu_tho():
             trong_luong_ib = df[mask_ib_w].drop_duplicates(subset="Mã vận đơn")["Trọng lượng"].sum()
             
             m3.metric("Trọng lượng (kg)", f"{(trong_luong_ob + trong_luong_ib):,.0f}")
-            
-            so_trung_ob = df["Trùng OB (sai thao tác)"].sum() if "Trùng OB (sai thao tác)" in df.columns else 0
-            m4.metric("Trùng OB (sai thao tác)", f"{so_trung_ob:,}")
 
             st.dataframe(df.head(500), use_container_width=True, height=400)
 
