@@ -50,7 +50,17 @@ st.markdown("""
 # ==========================================
 # 2. CÁC HÀM TIỆN ÍCH CƠ BẢN
 # ==========================================
-DB_URL = "postgresql://postgres.hpjxaxspjgsnsoxhvskm:07736215400394219723@aws-0-ap-southeast-2.pooler.supabase.com:5432/postgres?sslmode=require"
+# Chuỗi kết nối KHÔNG ghi thẳng trong code. Khai báo trong Streamlit:
+#   App -> Settings -> Secrets:   DB_URL = "postgresql://..."
+DB_URL = st.secrets.get("DB_URL", "")
+if not DB_URL:
+    st.error("Chưa khai báo DB_URL trong Secrets của app.")
+    st.stop()
+
+# Trang "Ontime 准时报表": các Bưu cục (cột "Bưu cục") bị loại khỏi tổng IB và COT.
+# So khớp không phân biệt hoa/thường và bỏ khoảng trắng ("DT TN" = "DTTN").
+BUU_CUC_LOAI_TRU = {"DTTN", "SETN"}
+
 
 def ket_noi():
     try:
@@ -64,6 +74,10 @@ def _chuan_hoa_ma(series):
     s = s.str.replace(r"\.0$", "", regex=True)
     s = s.str.replace(r"\s+", "", regex=True).str.upper()
     return s.replace({"NAN": "", "NONE": ""})
+
+def _khoa_buu_cuc(series):
+    """Chuẩn hóa tên bưu cục để so khớp: IN HOA + bỏ mọi khoảng trắng."""
+    return series.astype(str).str.upper().str.replace(r"\s+", "", regex=True)
 
 def divider_label(text):
     st.markdown(
@@ -425,57 +439,74 @@ def page_bao_cao_ontime():
         )
 
     if "kq_bao_cao_ontime" in st.session_state:
-        df_bc = st.session_state["kq_bao_cao_ontime"]
+        df_bc_goc = st.session_state["kq_bao_cao_ontime"]
         divider_label("Kết quả báo cáo tổng hợp")
 
-        if not df_bc.empty:
-            # 1. Tổng volume IB (Đã chuẩn hóa và unique mã vận đơn)
-            df_bc["Mã chuẩn"] = _chuan_hoa_ma(df_bc["Mã vận đơn"])
-            tong_ib = df_bc["Mã chuẩn"].nunique()
-
-            # 2. Tổng số đơn hàng được gửi đúng COT (按COT准时出库的订单量)
-            df_cot = df_bc[df_bc["Ontime"].astype(str).str.strip().str.lower() == "giao đúng cot"]
-            tong_dung_cot = df_cot["Mã chuẩn"].nunique()
-
-            ty_le_cot = (tong_dung_cot / tong_ib * 100) if tong_ib > 0 else 0
-
-            # 3. Tổng lượng hàng Inbound 1AM (1AM 入库件量)
-            df_1am_truoc = df_bc[df_bc["Ontime1AM"].astype(str).str.strip().str.lower() == "trước"]
-            tong_1am_truoc = df_1am_truoc["Mã chuẩn"].nunique()
-
-            # 4. Số đơn đến trước 1AM VÀ Giao đúng COT
-            df_1am_cot = df_1am_truoc[df_1am_truoc["Ontime"].astype(str).str.strip().str.lower() == "giao đúng cot"]
-            tong_1am_dung_cot = df_1am_cot["Mã chuẩn"].nunique()
-
-            ty_le_1am = (tong_1am_dung_cot / tong_1am_truoc * 100) if tong_1am_truoc > 0 else 0
-
-            # Hiển thị các chỉ số gọn gàng, không icon
-            st.markdown("### Chỉ số Hiệu suất COT & 1AM")
-            r1, r2, r3 = st.columns(3)
-            r1.metric("Tổng volume IB", f"{tong_ib:,}")
-            r2.metric("Tổng số đơn hàng được gửi đúng COT (按COT准时出库的订单量)", f"{tong_dung_cot:,}")
-            r3.metric("Tỷ lệ COT", f"{ty_le_cot:.2f}%")
-
-            st.markdown("---")
-            r4, r5, r6 = st.columns(3)
-            r4.metric("Tổng lượng hàng Inbound 1AM (1AM 入库件量)", f"{tong_1am_truoc:,}")
-            r5.metric("Số đơn trước 1AM & Đúng COT", f"{tong_1am_dung_cot:,}")
-            r6.metric("Tỷ lệ On-time 1AM", f"{ty_le_1am:.2f}%")
-
-            divider_label("Chi tiết dữ liệu báo cáo")
-            st.dataframe(df_bc.head(500), use_container_width=True, height=400)
-
-            cot_tai, _ = st.columns(2)
-            with cot_tai:
-                st.download_button(
-                    f"Tải Excel Báo Cáo ({len(df_bc):,} dòng)",
-                    xuat_excel({"Bao cao Ontime": df_bc}),
-                    file_name=f"bao_cao_ontime_{datetime.date.today()}.xlsx",
-                    use_container_width=True,
-                    type="primary",
-                )
-        else:
+        if df_bc_goc.empty:
             st.warning("Không tìm thấy dữ liệu phù hợp với bộ lọc!")
+            return
+
+        # Loại trừ các đơn có Bưu cục (đích) thuộc DT TN / SETN.
+        # Chỉ áp dụng ở trang này; trang SẢN LƯỢNG vẫn giữ nguyên toàn bộ số IB.
+        mask_loai_tru = _khoa_buu_cuc(df_bc_goc["Bưu cục"]).isin(BUU_CUC_LOAI_TRU)
+        so_dong_loai_tru = int(mask_loai_tru.sum())
+        df_bc = df_bc_goc.loc[~mask_loai_tru].copy()
+
+        if so_dong_loai_tru:
+            st.caption(
+                f"Đã loại trừ {so_dong_loai_tru:,} dòng có Bưu cục thuộc DT TN / SETN "
+                f"khỏi các chỉ số và bảng chi tiết bên dưới."
+            )
+
+        if df_bc.empty:
+            st.warning("Sau khi loại trừ DT TN / SETN không còn dữ liệu nào.")
+            return
+
+        # 1. Tổng volume IB (đã bỏ DT TN, SETN; chuẩn hóa và unique mã vận đơn)
+        df_bc["Mã chuẩn"] = _chuan_hoa_ma(df_bc["Mã vận đơn"])
+        tong_ib = df_bc["Mã chuẩn"].nunique()
+
+        # 2. Tổng số đơn hàng được gửi đúng COT (按COT准时出库的订单量)
+        df_cot = df_bc[df_bc["Ontime"].astype(str).str.strip().str.lower() == "giao đúng cot"]
+        tong_dung_cot = df_cot["Mã chuẩn"].nunique()
+
+        # Tỷ lệ COT = đúng COT / tổng IB (đã loại trừ)
+        ty_le_cot = (tong_dung_cot / tong_ib * 100) if tong_ib > 0 else 0
+
+        # 3. Tổng lượng hàng Inbound 1AM (1AM 入库件量)
+        df_1am_truoc = df_bc[df_bc["Ontime1AM"].astype(str).str.strip().str.lower() == "trước"]
+        tong_1am_truoc = df_1am_truoc["Mã chuẩn"].nunique()
+
+        # 4. Số đơn đến trước 1AM VÀ Giao đúng COT
+        df_1am_cot = df_1am_truoc[df_1am_truoc["Ontime"].astype(str).str.strip().str.lower() == "giao đúng cot"]
+        tong_1am_dung_cot = df_1am_cot["Mã chuẩn"].nunique()
+
+        ty_le_1am = (tong_1am_dung_cot / tong_1am_truoc * 100) if tong_1am_truoc > 0 else 0
+
+        st.markdown("### Chỉ số Hiệu suất COT & 1AM")
+        r1, r2, r3 = st.columns(3)
+        r1.metric("Tổng volume IB (đã loại DT TN, SETN)", f"{tong_ib:,}")
+        r2.metric("Tổng số đơn hàng được gửi đúng COT (按COT准时出库的订单量)", f"{tong_dung_cot:,}")
+        r3.metric("Tỷ lệ COT", f"{ty_le_cot:.2f}%")
+
+        st.markdown("---")
+        r4, r5, r6 = st.columns(3)
+        r4.metric("Tổng lượng hàng Inbound 1AM (1AM 入库件量)", f"{tong_1am_truoc:,}")
+        r5.metric("Số đơn trước 1AM & Đúng COT", f"{tong_1am_dung_cot:,}")
+        r6.metric("Tỷ lệ On-time 1AM", f"{ty_le_1am:.2f}%")
+
+        divider_label("Chi tiết dữ liệu báo cáo")
+        st.dataframe(df_bc.head(500), use_container_width=True, height=400)
+
+        cot_tai, _ = st.columns(2)
+        with cot_tai:
+            st.download_button(
+                f"Tải Excel Báo Cáo ({len(df_bc):,} dòng)",
+                xuat_excel({"Bao cao Ontime": df_bc}),
+                file_name=f"bao_cao_ontime_{datetime.date.today()}.xlsx",
+                use_container_width=True,
+                type="primary",
+            )
 
 
 # ==========================================
