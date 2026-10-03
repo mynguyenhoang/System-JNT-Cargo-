@@ -83,20 +83,18 @@ def xuat_excel(df_dict):
     return buf.getvalue()
 
 # ==========================================
-# 3. LOGIC TRUY VẤN DỮ LIỆU THÔ
+# 3. TRANG 1: DỮ LIỆU THÔ (QUÉT HÀNG)
 # ==========================================
-@st.cache_data(ttl=300, show_spinner="Đang truy vấn dữ liệu từ Supabase...")
+@st.cache_data(ttl=300, show_spinner="Đang truy vấn dữ liệu quét hàng...")
 def truy_van_du_lieu_tho(hub_chon, loai_chon, tu, den, tim):
     df_list = []
     safe_date = """(CASE WHEN "Ngày vận hành" LIKE '%%/%%' THEN TO_DATE("Ngày vận hành", 'MM/DD/YYYY') ELSE "Ngày vận hành"::date END)"""
 
-    # A. Truy vấn IB từ kpi_base
     if not loai_chon or "Dỡ xuống xe" in loai_chon:
         sql_ib = f"""
             SELECT "Mã vận đơn", "Thời gian quét", "Bưu cục quét" AS "Hub", 
                    "Trọng lượng", "Ngày vận hành", 'Dỡ xuống xe' AS "Loại quét"
-            FROM kpi_base
-            WHERE 1=1
+            FROM kpi_base WHERE 1=1
         """
         dk_ib, p_ib = [], []
         if hub_chon:
@@ -119,13 +117,11 @@ def truy_van_du_lieu_tho(hub_chon, loai_chon, tu, den, tim):
         con.close()
         df_list.append(df_ib)
 
-    # B. Truy vấn OB từ raw_quet_hang_xep_len_xe
     if not loai_chon or "Xếp lên xe" in loai_chon:
         sql_ob = f"""
             SELECT "Mã vận đơn", "Thời gian quét", "Bưu cục quét" AS "Hub", 
                    "Trọng lượng", "Ngày vận hành", 'Xếp lên xe' AS "Loại quét"
-            FROM raw_quet_hang_xep_len_xe
-            WHERE 1=1
+            FROM raw_quet_hang_xep_len_xe WHERE 1=1
         """
         dk_ob, p_ob = [], []
         if hub_chon:
@@ -163,7 +159,6 @@ def truy_van_du_lieu_tho(hub_chon, loai_chon, tu, den, tim):
             con2 = ket_noi()
             for i in range(0, len(danh_sach_mvd), chunk_size):
                 chunk = tuple(danh_sach_mvd[i : i + chunk_size])
-                
                 sql_hist = """
                     SELECT "Mã vận đơn", "Thời gian quét", 'Dỡ xuống xe' AS "Loại quét"
                     FROM kpi_base WHERE "Mã vận đơn" IN %s
@@ -177,38 +172,25 @@ def truy_van_du_lieu_tho(hub_chon, loai_chon, tu, den, tim):
             df_hist = pd.concat(df_hist_list, ignore_index=True)
             df_hist["Mã chuẩn"] = _chuan_hoa_ma(df_hist["Mã vận đơn"])
             df_hist["Thời gian quét_dt"] = pd.to_datetime(df_hist["Thời gian quét"], errors="coerce")
-            
             df_hist = df_hist.sort_values(by=["Mã chuẩn", "Thời gian quét_dt"])
 
             la_do_xuong = (df_hist["Loại quét"] == "Dỡ xuống xe").astype(int)
             df_hist["Đợt"] = la_do_xuong.groupby(df_hist["Mã chuẩn"]).cumsum()
             df_hist["Mã nối OB"] = df_hist["Mã chuẩn"] + "_Đợt" + df_hist["Đợt"].astype(str)
 
-            la_xep_len = df_hist["Loại quét"] == "Xếp lên xe"
-            df_hist["Trùng OB (sai thao tác)"] = False
-            df_hist.loc[la_xep_len, "Trùng OB (sai thao tác)"] = df_hist[la_xep_len].duplicated(subset=["Mã nối OB"], keep="first")
-
             df_hist["Key_map"] = df_hist["Mã chuẩn"] + "_" + df_hist["Thời gian quét_dt"].dt.strftime('%Y%m%d%H%M%S')
-            
             df["Thời gian quét_dt"] = pd.to_datetime(df["Thời gian quét"], errors="coerce")
             df["Key_map"] = df["Mã chuẩn"] + "_" + df["Thời gian quét_dt"].dt.strftime('%Y%m%d%H%M%S')
 
             df_hist_unique = df_hist.drop_duplicates(subset=["Key_map"], keep="last")
             map_ma_noi = df_hist_unique.set_index("Key_map")["Mã nối OB"].to_dict()
-            map_trung = df_hist_unique.set_index("Key_map")["Trùng OB (sai thao tác)"].to_dict()
 
             df["Mã nối OB"] = df["Key_map"].map(map_ma_noi)
-            df["Trùng OB (sai thao tác)"] = df["Key_map"].map(map_trung).fillna(False)
-            
-            # Loại bỏ cột "Trùng OB (sai thao tác)" không cần thiết theo yêu cầu
-            df = df.drop(columns=["Mã chuẩn", "Thời gian quét_dt", "Key_map", "Trùng OB (sai thao tác)"], errors="ignore")
+            df = df.drop(columns=["Mã chuẩn", "Thời gian quét_dt", "Key_map"], errors="ignore")
             df = df.sort_values(by="Thời gian quét", ascending=False)
 
     return df
 
-# ==========================================
-# 4. GIAO DIỆN TỪNG TRANG
-# ==========================================
 def page_du_lieu_tho():
     st.markdown('<div class="main-header"><h1>TRUY VẤN QUÉT HÀNG</h1><p>Dữ liệu IB lấy từ kpi_base | Dữ liệu OB lấy từ raw_quet_hang_xep_len_xe</p></div>', unsafe_allow_html=True)
     
@@ -279,13 +261,96 @@ def page_du_lieu_tho():
         else:
             st.warning("Không tìm thấy dữ liệu phù hợp với bộ lọc!")
 
+
+# ==========================================
+# 4. TRANG 2: ONTIME XẾP XE (raw_quan_ly_tien_do_xep_hang)
+# ==========================================
+@st.cache_data(ttl=300, show_spinner="Đang truy vấn tiến độ xếp xe...")
+def truy_van_ontime_xep_xe(hub_chon, tu, den):
+    safe_date = """(CASE WHEN "Date" LIKE '%%/%%' THEN TO_DATE("Date", 'MM/DD/YYYY') ELSE "Date"::date END)"""
+    sql = f"""
+        SELECT * FROM raw_quan_ly_tien_do_xep_hang
+        WHERE 1=1
+    """
+    dk, params = [], []
+    if hub_chon:
+        dk.append(f'"Bộ phận xếp hàng" IN ({",".join(["%s"] * len(hub_chon))})')
+        params += list(hub_chon)
+    if tu:
+        dk.append(f"{safe_date} >= %s")
+        params.append(tu)
+    if den:
+        dk.append(f"{safe_date} <= %s")
+        params.append(den)
+        
+    if dk:
+        sql += " AND " + " AND ".join(dk)
+        
+    con = ket_noi()
+    df = pd.read_sql(sql, con, params=params)
+    con.close()
+    return df
+
 def page_ontime_xep_xe():
-    st.title("Đang chờ update logic...")
-    st.info("Test xong trang Dữ liệu thô thì nhắn mình để update phần này nhé!")
+    st.markdown('<div class="main-header"><h1>ONTIME XẾP XE</h1><p>Theo dõi tiến độ chuyến xe giao đi từ bảng raw_quan_ly_tien_do_xep_hang</p></div>', unsafe_allow_html=True)
+    
+    with st.expander("BỘ LỌC TÌM KIẾM", expanded=True):
+        with st.form("form_ontime_xh"):
+            c1, c2, c3 = st.columns(3)
+            hub_xh = c1.multiselect("Bộ phận xếp hàng (Hub)", ["HCM HUB", "BN HUB", "SH DC", "CTO SC"], placeholder="Tất cả")
+            tu_xh = c2.date_input("Từ ngày vận hành", value=datetime.date.today(), format="YYYY-MM-DD")
+            den_xh = c3.date_input("Đến ngày vận hành", value=datetime.date.today(), format="YYYY-MM-DD")
+            
+            submit_xh = st.form_submit_button("TRUY VẤN TIẾN ĐỘ", type="primary", use_container_width=True)
+
+    if submit_xh:
+        st.session_state["kq_ontime_xh"] = truy_van_ontime_xep_xe(
+            tuple(hub_xh), str(tu_xh), str(den_xh)
+        )
+
+    if "kq_ontime_xh" in st.session_state:
+        df_xh = st.session_state["kq_ontime_xh"]
+        divider_label("Kết quả tiến độ chuyến xe")
+
+        if not df_xh.empty:
+            # Chuẩn hóa cột type và ontime để thống kê
+            df_xh["type_clean"] = df_xh["type"].astype(str).str.strip().str.upper()
+            df_xh["ontime_clean"] = df_xh["ontime"].astype(str).str.strip().str.lower()
+
+            tong_linehaul = (df_xh["type_clean"] == "LINEHAUL").sum()
+            tong_shuttle = (df_xh["type_clean"] == "SHUTTLE").sum()
+            
+            # Đếm số chuyến ontime / late
+            so_ontime = (df_xh["ontime_clean"] == "ontime").sum()
+            so_late = (df_xh["ontime_clean"] == "late").sum()
+            ty_le_ontime = (so_ontime / len(df_xh) * 100) if len(df_xh) > 0 else 0
+
+            m1, m2, m3, m4, m5 = st.columns(5)
+            m1.metric("Tổng Linehaul", f"{tong_linehaul:,}")
+            m2.metric("Tổng Shuttle", f"{tong_shuttle:,}")
+            m3.metric("Số chuyến Ontime", f"{so_ontime:,}")
+            m4.metric("Số chuyến Late", f"{so_late:,}")
+            m5.metric("Tỷ lệ Ontime", f"{ty_le_ontime:.2f}%")
+
+            st.dataframe(df_xh.head(500), use_container_width=True, height=420)
+
+            cot_tai, _ = st.columns(2)
+            with cot_tai:
+                st.download_button(
+                    f"Tải Excel ({len(df_xh):,} chuyến xe)",
+                    xuat_excel({"Ontime xep xe": df_xh}),
+                    file_name=f"ontime_xep_xe_{datetime.date.today()}.xlsx",
+                    use_container_width=True,
+                    type="primary",
+                )
+        else:
+            st.warning("Không tìm thấy dữ liệu phù hợp với bộ lọc!")
+
 
 def page_bao_cao_ontime():
     st.title("Đang chờ update logic...")
-    st.info("Test xong trang Dữ liệu thô thì nhắn mình để update phần này nhé!")
+    st.info("Test xong trang Ontime Xếp xe thì nhắn mình để update phần này nhé!")
+
 
 # ==========================================
 # 5. ĐIỀU HƯỚNG CHÍNH (SIDEBAR)
