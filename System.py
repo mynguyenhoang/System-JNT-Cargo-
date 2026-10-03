@@ -8,12 +8,12 @@ from openpyxl.utils import get_column_letter
 import streamlit as st
 
 # ==========================================
-# 1. CẤU HÌNH TRANG & CSS GỌN GÀNG, SẠCH SẼ
+# 1. CẤU HÌNH TRANG & CỐ ĐỊNH SIDEBAR HIỆN RA
 # ==========================================
 st.set_page_config(
     page_title="QC Operations Hub",
     layout="wide",
-    initial_sidebar_state="expanded",
+    initial_sidebar_state="expanded",  # Cố định luôn mở thanh menu bên trái
 )
 
 st.markdown("""
@@ -21,7 +21,7 @@ st.markdown("""
     #MainMenu, footer, header { visibility: hidden; }
     .block-container { padding-top: 1.5rem; padding-bottom: 2rem; }
     
-    /* Nút bấm chính màu xanh lá chuẩn */
+    /* Nút bấm chính màu xanh lá chuẩn doanh nghiệp */
     .stButton button[kind="primary"], .stDownloadButton button {
         background-color: #2e7d32 !important;
         color: white !important;
