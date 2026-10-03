@@ -3,6 +3,8 @@ import datetime
 import io
 import pandas as pd
 import psycopg2
+import requests
+from openpyxl.utils import get_column_letter
 import streamlit as st
 
 # ==========================================
@@ -48,9 +50,13 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ==========================================
-# 2. CÁC HÀM TIỆN ÍCH CƠ BẢN
+# 2. CÁC HÀM TIỆN ÍCH & CẤU HÌNH FEISHU
 # ==========================================
 DB_URL = "postgresql://postgres.hpjxaxspjgsnsoxhvskm:07736215400394219723@aws-0-ap-southeast-2.pooler.supabase.com:5432/postgres?sslmode=require"
+
+FEISHU_APP_ID             = st.secrets.get("FEISHU_APP_ID", "cli_a9456e412bb89bce")
+FEISHU_APP_SECRET        = st.secrets.get("FEISHU_APP_SECRET", "BwSAuHHsv2woEdIGTqJoKboH6i1i7qBB")
+FEISHU_SPREADSHEET_TOKEN = st.secrets.get("FEISHU_SPREADSHEET_TOKEN", "LXeHseOdthPKm0tnpChcjonKnkf")
 
 BUU_CUC_LOAI_TRU = {"DTTN", "SETN"}
 
@@ -85,6 +91,91 @@ def xuat_excel(df_dict):
         for ten, d in df_dict.items():
             d.to_excel(wr, sheet_name=ten, index=False)
     return buf.getvalue()
+
+
+# ==========================================
+# CÁC HÀM TÍCH HỢP FEISHU SHEETS
+# ==========================================
+def _feishu_token():
+    if not FEISHU_APP_ID or not FEISHU_APP_SECRET:
+        raise RuntimeError("Chưa khai báo FEISHU_APP_ID / FEISHU_APP_SECRET.")
+    r = requests.post(
+        "https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal",
+        json={"app_id": FEISHU_APP_ID, "app_secret": FEISHU_APP_SECRET},
+        timeout=15,
+    )
+    data = r.json()
+    if data.get("code") != 0:
+        raise RuntimeError(f"Feishu từ chối cấp token: {data.get('msg')}")
+    return data["tenant_access_token"]
+
+def _feishu_headers(token):
+    return {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json; charset=utf-8",
+    }
+
+def _feishu_lay_hoac_tao_sheet(token, sheet_name):
+    if not FEISHU_SPREADSHEET_TOKEN:
+        raise RuntimeError("Chưa khai báo FEISHU_SPREADSHEET_TOKEN.")
+    url = f"https://open.feishu.cn/open-apis/sheets/v3/spreadsheets/{FEISHU_SPREADSHEET_TOKEN}/sheets/query"
+    r = requests.get(url, headers=_feishu_headers(token), timeout=15)
+    data = r.json()
+    if data.get("code") != 0:
+        raise RuntimeError(f"Không lấy được danh sách sheet: {data.get('msg')}")
+
+    for s in data["data"]["sheets"]:
+        if s["title"] == sheet_name:
+            return s["sheet_id"]
+
+    url_add = f"https://open.feishu.cn/open-apis/sheets/v2/spreadsheets/{FEISHU_SPREADSHEET_TOKEN}/sheets_batch_update"
+    body = {"requests": [{"addSheet": {"properties": {"title": sheet_name, "index": 0}}}]}
+    r2 = requests.post(url_add, headers=_feishu_headers(token), json=body, timeout=15)
+    d2 = r2.json()
+    if d2.get("code") != 0:
+        raise RuntimeError(f"Không tạo được sheet '{sheet_name}': {d2.get('msg')}")
+    return d2["data"]["replies"][0]["addSheet"]["properties"]["sheetId"]
+
+def _feishu_don_dep_sheet(token, sheet_id):
+    url = f"https://open.feishu.cn/open-apis/sheets/v2/spreadsheets/{FEISHU_SPREADSHEET_TOKEN}/values_batch_clear"
+    body = {"ranges": [f"{sheet_id}!A1:BZ200000"]}
+    requests.post(url, headers=_feishu_headers(token), json=body, timeout=30)
+
+def _df_ve_gia_tri(df):
+    d = df.copy()
+    for c in d.columns:
+        if pd.api.types.is_datetime64_any_dtype(d[c]):
+            d[c] = d[c].astype(str)
+    d = d.astype(object).where(pd.notnull(d), "")
+    d = d.astype(str)
+    return [list(d.columns)] + d.values.tolist()
+
+def day_len_feishu(sheet_name, df):
+    if df is None or df.empty:
+        raise RuntimeError("Không có dữ liệu để đẩy.")
+    token = _feishu_token()
+    sheet_id = _feishu_lay_hoac_tao_sheet(token, sheet_name)
+    _feishu_don_dep_sheet(token, sheet_id)
+
+    gia_tri = _df_ve_gia_tri(df)
+    so_cot  = len(gia_tri[0])
+    tong_dong = len(gia_tri)
+
+    CHUNK = 2000
+    url = f"https://open.feishu.cn/open-apis/sheets/v2/spreadsheets/{FEISHU_SPREADSHEET_TOKEN}/values"
+    cot_kt = get_column_letter(so_cot)
+    for i in range(0, tong_dong, CHUNK):
+        phan = gia_tri[i : i + CHUNK]
+        dong_bd = i + 1
+        dong_kt = i + len(phan)
+        rng = f"{sheet_id}!A{dong_bd}:{cot_kt}{dong_kt}"
+        body = {"valueRange": {"range": rng, "values": phan}}
+        r = requests.put(url, headers=_feishu_headers(token), json=body, timeout=60)
+        d = r.json()
+        if d.get("code") != 0:
+            raise RuntimeError(f"Lỗi ghi dữ liệu (dòng {dong_bd}-{dong_kt}): {d.get('msg')}")
+    return tong_dong - 1
+
 
 # ==========================================
 # 3. TRANG 1: SẢN LƯỢNG | 生产
@@ -253,7 +344,7 @@ def page_du_lieu_tho():
             else:
                 df_xuat = df.drop_duplicates(subset="Mã vận đơn")
                 
-            cot_tai, _ = st.columns(2)
+            cot_tai, cot_day = st.columns(2)
             with cot_tai:
                 st.download_button(
                     f"Tải Excel ({len(df_xuat):,} số vận đơn sau khi lọc)",
@@ -262,6 +353,14 @@ def page_du_lieu_tho():
                     use_container_width=True,
                     type="primary",
                 )
+            with cot_day:
+                if st.button(f"Đẩy lên Feishu Sheets ({len(df_xuat):,} dòng)", use_container_width=True, key="feishu_san_luong"):
+                    try:
+                        with st.spinner("Đang đẩy dữ liệu sản lượng lên Feishu..."):
+                            n_dong = day_len_feishu("SanLuong", df_xuat)
+                        st.success(f"Đã đẩy thành công {n_dong:,} dòng lên Feishu Sheets!")
+                    except Exception as e:
+                        st.error(f"Đẩy Feishu thất bại: {e}")
         else:
             st.warning("Không tìm thấy dữ liệu phù hợp với bộ lọc!")
 
@@ -360,7 +459,7 @@ def page_ontime_xep_xe():
                 st.dataframe(df_st.head(500), use_container_width=True, height=380)
 
             divider_label("Xuất dữ liệu tổng hợp")
-            cot_tai, _ = st.columns(2)
+            cot_tai, cot_day = st.columns(2)
             with cot_tai:
                 st.download_button(
                     f"Tải Excel Tổng Hợp ({len(df_xh):,} chuyến xe)",
@@ -373,6 +472,14 @@ def page_ontime_xep_xe():
                     use_container_width=True,
                     type="primary",
                 )
+            with cot_day:
+                if st.button(f"Đẩy lên Feishu Sheets ({len(df_xh):,} dòng)", use_container_width=True, key="feishu_tien_do_xep_xe"):
+                    try:
+                        with st.spinner("Đang đẩy dữ liệu tiến độ xếp xe lên Feishu..."):
+                            n_dong = day_len_feishu("TienDoXepXe", df_xh)
+                        st.success(f"Đã đẩy thành công {n_dong:,} dòng lên Feishu Sheets!")
+                    except Exception as e:
+                        st.error(f"Đẩy Feishu thất bại: {e}")
         else:
             st.warning("Không tìm thấy dữ liệu phù hợp với bộ lọc!")
 
@@ -488,8 +595,8 @@ def page_bao_cao_ontime():
             r8.metric("Số đơn tuyến chính gửi đi đúng hạn / 干线准时发出票数", f"{so_lh_gui_dung_han:,}")
             r9.metric("Tỷ lệ tuyến chính gửi đi đúng hạn / 干线准时发出率", f"{ty_le_lh_gui_di:.2f}%")
 
-            # Tuyến nhánh (Shuttle): dùng df_bc để đồng bộ chuẩn xác bộ lọc loại trừ
-            df_sh_goc = df_bc.copy()
+            # Tuyến nhánh (Shuttle): dùng df_bc_goc (dữ liệu gốc chưa loại trừ DT TN / SETN) đúng yêu cầu
+            df_sh_goc = df_bc_goc.copy()
             df_sh_goc["Mã chuẩn"] = _chuan_hoa_ma(df_sh_goc["Mã vận đơn"])
             
             df_sh_dung_gio = df_sh_goc[
@@ -514,7 +621,7 @@ def page_bao_cao_ontime():
         divider_label("Chi tiết dữ liệu báo cáo")
         st.dataframe(df_bc.head(500), use_container_width=True, height=400)
 
-        cot_tai, _ = st.columns(2)
+        cot_tai, cot_day = st.columns(2)
         with cot_tai:
             st.download_button(
                 f"Tải Excel Báo Cáo ({len(df_bc):,} dòng)",
@@ -523,6 +630,14 @@ def page_bao_cao_ontime():
                 use_container_width=True,
                 type="primary",
             )
+        with cot_day:
+            if st.button(f"Đẩy lên Feishu Sheets ({len(df_bc):,} dòng)", use_container_width=True, key="feishu_bao_cao_ontime"):
+                try:
+                    with st.spinner("Đang đẩy dữ liệu báo cáo Ontime lên Feishu..."):
+                        n_dong = day_len_feishu("BaoCaoOntime", df_bc)
+                    st.success(f"Đã đẩy thành công {n_dong:,} dòng lên Feishu Sheets!")
+                except Exception as e:
+                    st.error(f"Đẩy Feishu thất bại: {e}")
 
 
 # ==========================================
