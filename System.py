@@ -54,13 +54,15 @@ st.markdown("""
 # ==========================================
 # 2. CÁC HÀM TIỆN ÍCH CƠ BẢN
 # ==========================================
-DB_URL = st.secrets.get("DB_URL", "")
-if not DB_URL:
-    st.error("Chưa khai báo DB_URL trong Secrets của app.")
-    st.stop()
+# Gán cứng DB_URL trực tiếp để không cần cài Secrets trên Streamlit Cloud
+DB_URL = "postgresql://postgres.hpjxaxspjgsnsoxhvskm:%40Tata1900561558a@aws-0-ap-southeast-2.pooler.supabase.com:5432/postgres?sslmode=require"
 
 def ket_noi():
-    return psycopg2.connect(DB_URL)
+    try:
+        return psycopg2.connect(DB_URL)
+    except Exception as e:
+        st.error(f"Lỗi kết nối CSDL: {e}")
+        st.stop()
 
 def _chuan_hoa_ma(series):
     s = series.astype(str).str.strip()
@@ -90,7 +92,6 @@ def xuat_excel(df_dict):
 @st.cache_data(ttl=300, show_spinner="Đang truy vấn dữ liệu từ Supabase...")
 def truy_van_du_lieu_tho(hub_chon, loai_chon, tu, den, tim):
     df_list = []
-    params = []
     
     # ---------------------------------------------------------
     # A. Truy vấn IB (Dỡ xuống xe) từ bảng kpi_base
@@ -258,7 +259,7 @@ def page_du_lieu_tho():
             m1, m2, m3, m4 = st.columns(4)
             m1.metric("Số dòng", f"{len(df):,}")
             
-            # Đếm mã vận đơn như cũ
+            # Đếm mã vận đơn
             if "Mã nối OB" in df.columns:
                 la_ob_dem = df["Loại quét"] == "Xếp lên xe"
                 khoa_dem = df["Mã vận đơn"].astype(str).where(~la_ob_dem, df["Mã nối OB"])
