@@ -8,7 +8,7 @@ from openpyxl.utils import get_column_letter
 import streamlit as st
 
 # ==========================================
-# 1. CẤU HÌNH TRANG & CSS (TONE XANH LÁ CHUYÊN NGHIỆP)
+# 1. CẤU HÌNH TRANG & CSS (GIAO DIỆN SÁNG CHUYÊN NGHIỆP)
 # ==========================================
 st.set_page_config(
     page_title="QC Operations Hub",
@@ -18,21 +18,35 @@ st.set_page_config(
 
 st.markdown("""
 <style>
-    #MainMenu, footer, header { visibility: hidden; }
-    .block-container { padding-top: 1rem; padding-bottom: 2rem; }
+    /* Tổng thể nền sáng dịu mắt */
+    .stApp {
+        background-color: #f8f9fa;
+        color: #212529;
+    }
     
+    #MainMenu, footer, header { visibility: hidden; }
+    .block-container { padding-top: 1.5rem; padding-bottom: 2rem; }
+    
+    /* Sidebar gọn gàng, chuyên nghiệp */
+    [data-testid="stSidebar"] {
+        background-color: #ffffff;
+        border-right: 1px solid #e9ecef;
+    }
+    
+    /* Card metric */
     [data-testid="metric-container"] {
         background: #ffffff;
-        border: 1px solid #c8e6c9;
+        border: 1px solid #dee2e6;
         border-radius: 8px;
         padding: 1.2rem !important;
-        box-shadow: 0 2px 4px rgba(46, 125, 50, 0.08);
+        box-shadow: 0 1px 3px rgba(0,0,0,0.04);
     }
     [data-testid="metric-container"] label {
-        color: #2e7d32 !important;
+        color: #495057 !important;
         font-weight: 600 !important;
     }
     
+    /* Nút bấm primary và download màu xanh lá chuẩn */
     .stButton button[kind="primary"], .stDownloadButton button {
         background-color: #2e7d32 !important;
         color: white !important;
@@ -44,15 +58,16 @@ st.markdown("""
         background-color: #1b5e20 !important;
     }
     
+    /* Tiêu đề chính */
     .main-header {
-        background: linear-gradient(135deg, #1b5e20 0%, #2e7d32 100%);
+        background: linear-gradient(135deg, #2e7d32 0%, #1b5e20 100%);
         padding: 20px 30px;
         border-radius: 8px;
         margin-bottom: 25px;
         color: white;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        box-shadow: 0 2px 4px rgba(0,0,0,0.06);
     }
-    .main-header h1 { color: white; margin: 0; font-size: 24px; font-weight: 700; }
+    .main-header h1 { color: white; margin: 0; font-size: 22px; font-weight: 700; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -628,7 +643,7 @@ def page_bao_cao_ontime():
         divider_label("Chi tiết dữ liệu báo cáo")
         st.dataframe(df_bc.head(500), use_container_width=True, height=400)
 
-        # ── LỰA CHỌN ĐỦ 5 NHÓM ĐÃ BỎ NGOẶC ĐƠN ──
+        # ── LỰA CHỌN GỌN GÀNG, CHUYÊN NGHIỆP ──
         st.markdown("#### Tùy chọn xuất dữ liệu / Đẩy lên Feishu")
         chon_nhom_push = st.selectbox(
             "Chọn nhóm dữ liệu bạn muốn thao tác:",
