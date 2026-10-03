@@ -483,6 +483,28 @@ def page_bao_cao_ontime():
         r5.metric("Số đơn trước 1AM & Đúng COT", f"{tong_1am_dung_cot:,}")
         r6.metric("Tỷ lệ On-time 1AM", f"{ty_le_1am:.2f}%")
 
+        # 5. Tuyến chính (Linehaul): lọc Type OB = Linehaul + Trạng thái = Đúng giờ,
+        #    đếm unique Mã vận đơn (giống công thức UNIQUE/FILTER trên Feishu)
+        st.markdown("---")
+        if "Type OB" in df_bc.columns and "Trạng thái" in df_bc.columns:
+            df_lh_dung_gio = df_bc[
+                (df_bc["Type OB"].astype(str).str.strip().str.lower() == "linehaul")
+                & (df_bc["Trạng thái"].astype(str).str.strip().str.lower() == "đúng giờ")
+                & (df_bc["Mã chuẩn"] != "")
+            ]
+            # Số đơn tuyến chính đến đúng hạn
+            so_lh_den_dung_han = df_lh_dung_gio["Mã chuẩn"].nunique()
+            # Số đơn tuyến chính gửi đi đúng hạn (thêm điều kiện Ontime = Giao đúng COT)
+            so_lh_gui_dung_han = df_lh_dung_gio[
+                df_lh_dung_gio["Ontime"].astype(str).str.strip().str.lower() == "giao đúng cot"
+            ]["Mã chuẩn"].nunique()
+
+            r7, r8, _ = st.columns(3)
+            r7.metric("Số đơn tuyến chính đến đúng hạn / 干线准时到达票数", f"{so_lh_den_dung_han:,}")
+            r8.metric("Số đơn tuyến chính gửi đi đúng hạn / 干线准时发出票数", f"{so_lh_gui_dung_han:,}")
+        else:
+            st.warning("Bảng kpi_base chưa có cột 'Type OB' / 'Trạng thái' nên chưa tính được 2 chỉ số tuyến chính.")
+
         divider_label("Chi tiết dữ liệu báo cáo")
         st.dataframe(df_bc.head(500), use_container_width=True, height=400)
 
