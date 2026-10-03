@@ -52,7 +52,6 @@ st.markdown("""
 # ==========================================
 DB_URL = "postgresql://postgres.hpjxaxspjgsnsoxhvskm:07736215400394219723@aws-0-ap-southeast-2.pooler.supabase.com:5432/postgres?sslmode=require"
 
-# Các Bưu cục bị loại khỏi tổng IB và COT ở trang Ontime 准时报表
 BUU_CUC_LOAI_TRU = {"DTTN", "SETN"}
 
 def ket_noi():
@@ -489,8 +488,8 @@ def page_bao_cao_ontime():
             r8.metric("Số đơn tuyến chính gửi đi đúng hạn / 干线准时发出票数", f"{so_lh_gui_dung_han:,}")
             r9.metric("Tỷ lệ tuyến chính gửi đi đúng hạn / 干线准时发出率", f"{ty_le_lh_gui_di:.2f}%")
 
-            # Tuyến nhánh (Shuttle): dùng df_bc_goc nhưng chuẩn hóa bám sát bộ lọc
-            df_sh_goc = df_bc_goc.copy()
+            # Tuyến nhánh (Shuttle): dùng df_bc để đồng bộ chuẩn xác bộ lọc loại trừ
+            df_sh_goc = df_bc.copy()
             df_sh_goc["Mã chuẩn"] = _chuan_hoa_ma(df_sh_goc["Mã vận đơn"])
             
             df_sh_dung_gio = df_sh_goc[
