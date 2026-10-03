@@ -83,13 +83,12 @@ def xuat_excel(df_dict):
     return buf.getvalue()
 
 # ==========================================
-# 3. LOGIC TRUY VẤN DỮ LIỆU THÔ ĐÃ FIX LỖI NGÀY & LỖI OB
+# 3. LOGIC TRUY VẤN DỮ LIỆU THÔ (ĐÃ FIX LOGIC CHECK TRÙNG OB)
 # ==========================================
 @st.cache_data(ttl=300, show_spinner="Đang truy vấn dữ liệu từ Supabase...")
 def truy_van_du_lieu_tho(hub_chon, loai_chon, tu, den, tim):
     df_list = []
     
-    # Giải quyết triệt để lỗi DB lưu dạng Text 'MM/DD/YYYY' bằng cách ép kiểu an toàn trong SQL
     safe_date = """(CASE WHEN "Ngày vận hành" LIKE '%%/%%' THEN TO_DATE("Ngày vận hành", 'MM/DD/YYYY') ELSE "Ngày vận hành"::date END)"""
 
     # ---------------------------------------------------------
@@ -161,7 +160,7 @@ def truy_van_du_lieu_tho(hub_chon, loai_chon, tu, den, tim):
         df_list.append(df_ob)
 
     # ---------------------------------------------------------
-    # C. Gộp Data & Chạy Logic Check Trùng (Giữ nguyên y chang code cũ)
+    # C. Gộp Data & Chạy Logic Check Trùng Chuẩn Xác Giống Code Cũ
     # ---------------------------------------------------------
     if not df_list:
         return pd.DataFrame()
@@ -179,12 +178,12 @@ def truy_van_du_lieu_tho(hub_chon, loai_chon, tu, den, tim):
             for i in range(0, len(danh_sach_mvd), chunk_size):
                 chunk = tuple(danh_sach_mvd[i : i + chunk_size])
                 
-                # Lịch sử quét IB (Mã vận đơn -> kpi_base)
+                # Lấy lịch sử IB từ kpi_base
                 sql_hist_ib = """
                     SELECT "Mã vận đơn", "Thời gian quét", 'Dỡ xuống xe' AS "Loại quét"
                     FROM kpi_base WHERE "Mã vận đơn" IN %s
                 """
-                # Lịch sử quét OB (Mã vận đơn -> raw_quet_hang_xep_len_xe)
+                # Lấy lịch sử OB từ raw_quet_hang_xep_len_xe
                 sql_hist_ob = """
                     SELECT "Mã vận đơn", "Thời gian quét", 'Xếp lên xe' AS "Loại quét"
                     FROM raw_quet_hang_xep_len_xe WHERE "Mã vận đơn" IN %s
@@ -197,6 +196,8 @@ def truy_van_du_lieu_tho(hub_chon, loai_chon, tu, den, tim):
             df_hist = pd.concat(df_hist_list, ignore_index=True)
             df_hist["Mã chuẩn"] = _chuan_hoa_ma(df_hist["Mã vận đơn"])
             df_hist["Thời gian quét_dt"] = pd.to_datetime(df_hist["Thời gian quét"], errors="coerce")
+            
+            # Sắp xếp lịch sử toàn cục theo đúng thời gian quét tăng dần để tính đợt chính xác tuyệt đối
             df_hist = df_hist.sort_values(by=["Mã chuẩn", "Thời gian quét_dt"])
 
             la_do_xuong = (df_hist["Loại quét"] == "Dỡ xuống xe").astype(int)
@@ -219,7 +220,6 @@ def truy_van_du_lieu_tho(hub_chon, loai_chon, tu, den, tim):
             df["Mã nối OB"] = df["Key_map"].map(map_ma_noi)
             df["Trùng OB (sai thao tác)"] = df["Key_map"].map(map_trung).fillna(False)
             
-            # Xóa các cột phụ
             df = df.drop(columns=["Mã chuẩn", "Thời gian quét_dt", "Key_map"])
             df = df.sort_values(by="Thời gian quét", ascending=False)
 
@@ -257,7 +257,6 @@ def page_du_lieu_tho():
             m1, m2, m3, m4 = st.columns(4)
             m1.metric("Số dòng", f"{len(df):,}")
             
-            # Đếm mã vận đơn
             if "Mã nối OB" in df.columns:
                 la_ob_dem = df["Loại quét"] == "Xếp lên xe"
                 khoa_dem = df["Mã vận đơn"].astype(str).where(~la_ob_dem, df["Mã nối OB"])
@@ -266,7 +265,6 @@ def page_du_lieu_tho():
                 so_van_don = df["Mã vận đơn"].nunique()
             m2.metric("Số vận đơn", f"{so_van_don:,}")
 
-            # Tính trọng lượng
             df["Trọng lượng"] = pd.to_numeric(df["Trọng lượng"], errors="coerce").fillna(0)
             mask_ob_w = df["Loại quét"] == "Xếp lên xe"
             mask_ib_w = df["Loại quét"] == "Dỡ xuống xe"
@@ -282,10 +280,8 @@ def page_du_lieu_tho():
             so_trung_ob = df["Trùng OB (sai thao tác)"].sum() if "Trùng OB (sai thao tác)" in df.columns else 0
             m4.metric("Trùng OB (sai thao tác)", f"{so_trung_ob:,}")
 
-            # Hiển thị bảng
             st.dataframe(df.head(500), use_container_width=True, height=400)
 
-            # Xuất Excel
             if "Mã nối OB" in df.columns:
                 la_ob_xuat = df["Loại quét"] == "Xếp lên xe"
                 khoa_xuat = df["Mã vận đơn"].astype(str).where(~la_ob_xuat, df["Mã nối OB"])
