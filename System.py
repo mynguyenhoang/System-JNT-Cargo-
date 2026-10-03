@@ -6,7 +6,7 @@ import psycopg2
 import streamlit as st
 
 # ==========================================
-# 1. CẤU HÌNH TRANG & CSS MỚI
+# 1. CẤU HÌNH TRANG & CSS
 # ==========================================
 st.set_page_config(
     page_title="QC Operations Hub",
@@ -19,7 +19,6 @@ st.markdown("""
     #MainMenu, footer, header { visibility: hidden; }
     .block-container { padding-top: 1rem; padding-bottom: 2rem; }
     
-    /* Làm đẹp các thẻ Metric */
     [data-testid="metric-container"] {
         background: #ffffff;
         border: 1px solid #e0e6ed;
@@ -28,7 +27,6 @@ st.markdown("""
         box-shadow: 0 2px 4px rgba(0,0,0,0.05);
     }
     
-    /* Làm đẹp nút bấm */
     .stButton button[kind="primary"], .stDownloadButton button {
         background-color: #1a3a6b !important;
         color: white !important;
@@ -37,7 +35,6 @@ st.markdown("""
         font-weight: 600 !important;
     }
     
-    /* Header chính */
     .main-header {
         background: linear-gradient(135deg, #1a3a6b 0%, #2a5298 100%);
         padding: 20px 30px;
@@ -54,7 +51,6 @@ st.markdown("""
 # ==========================================
 # 2. CÁC HÀM TIỆN ÍCH CƠ BẢN
 # ==========================================
-# Đã dán đúng password chạy được từ nãy
 DB_URL = "postgresql://postgres.hpjxaxspjgsnsoxhvskm:07736215400394219723@aws-0-ap-southeast-2.pooler.supabase.com:5432/postgres?sslmode=require"
 
 def ket_noi():
@@ -87,12 +83,15 @@ def xuat_excel(df_dict):
     return buf.getvalue()
 
 # ==========================================
-# 3. LOGIC TRUY VẤN DỮ LIỆU THÔ (MỚI)
+# 3. LOGIC TRUY VẤN DỮ LIỆU THÔ ĐÃ FIX LỖI NGÀY & LỖI OB
 # ==========================================
 @st.cache_data(ttl=300, show_spinner="Đang truy vấn dữ liệu từ Supabase...")
 def truy_van_du_lieu_tho(hub_chon, loai_chon, tu, den, tim):
     df_list = []
     
+    # Giải quyết triệt để lỗi DB lưu dạng Text 'MM/DD/YYYY' bằng cách ép kiểu an toàn trong SQL
+    safe_date = """(CASE WHEN "Ngày vận hành" LIKE '%%/%%' THEN TO_DATE("Ngày vận hành", 'MM/DD/YYYY') ELSE "Ngày vận hành"::date END)"""
+
     # ---------------------------------------------------------
     # A. Truy vấn IB (Dỡ xuống xe) từ bảng kpi_base
     # ---------------------------------------------------------
@@ -110,10 +109,10 @@ def truy_van_du_lieu_tho(hub_chon, loai_chon, tu, den, tim):
             dk_ib.append(f'"Bưu cục quét" IN ({",".join(["%s"] * len(hub_chon))})')
             p_ib += list(hub_chon)
         if tu:
-            dk_ib.append(f'"Ngày vận hành" >= %s')
+            dk_ib.append(f"{safe_date} >= %s")
             p_ib.append(tu)
         if den:
-            dk_ib.append(f'"Ngày vận hành" <= %s')
+            dk_ib.append(f"{safe_date} <= %s")
             p_ib.append(den)
         if tim:
             dk_ib.append(f'"Mã vận đơn" LIKE %s')
@@ -133,8 +132,7 @@ def truy_van_du_lieu_tho(hub_chon, loai_chon, tu, den, tim):
     if not loai_chon or "Xếp lên xe" in loai_chon:
         sql_ob = """
             SELECT "Mã vận đơn", "Thời gian quét", "Bưu cục quét" AS "Hub", 
-                   "Trọng lượng", SUBSTRING("Thời gian quét", 1, 10) AS "Ngày vận hành", 
-                   'Xếp lên xe' AS "Loại quét"
+                   "Trọng lượng", "Ngày vận hành", 'Xếp lên xe' AS "Loại quét"
             FROM raw_quet_hang_xep_len_xe
             WHERE 1=1
         """
@@ -145,10 +143,10 @@ def truy_van_du_lieu_tho(hub_chon, loai_chon, tu, den, tim):
             dk_ob.append(f'"Bưu cục quét" IN ({",".join(["%s"] * len(hub_chon))})')
             p_ob += list(hub_chon)
         if tu:
-            dk_ob.append(f'SUBSTRING("Thời gian quét", 1, 10) >= %s')
+            dk_ob.append(f"{safe_date} >= %s")
             p_ob.append(tu)
         if den:
-            dk_ob.append(f'SUBSTRING("Thời gian quét", 1, 10) <= %s')
+            dk_ob.append(f"{safe_date} <= %s")
             p_ob.append(den)
         if tim:
             dk_ob.append(f'"Mã vận đơn" LIKE %s')
@@ -163,7 +161,7 @@ def truy_van_du_lieu_tho(hub_chon, loai_chon, tu, den, tim):
         df_list.append(df_ob)
 
     # ---------------------------------------------------------
-    # C. Gộp Data & Chạy Logic Check Trùng
+    # C. Gộp Data & Chạy Logic Check Trùng (Giữ nguyên y chang code cũ)
     # ---------------------------------------------------------
     if not df_list:
         return pd.DataFrame()
@@ -181,12 +179,12 @@ def truy_van_du_lieu_tho(hub_chon, loai_chon, tu, den, tim):
             for i in range(0, len(danh_sach_mvd), chunk_size):
                 chunk = tuple(danh_sach_mvd[i : i + chunk_size])
                 
-                # Lịch sử quét IB
+                # Lịch sử quét IB (Mã vận đơn -> kpi_base)
                 sql_hist_ib = """
                     SELECT "Mã vận đơn", "Thời gian quét", 'Dỡ xuống xe' AS "Loại quét"
                     FROM kpi_base WHERE "Mã vận đơn" IN %s
                 """
-                # Lịch sử quét OB
+                # Lịch sử quét OB (Mã vận đơn -> raw_quet_hang_xep_len_xe)
                 sql_hist_ob = """
                     SELECT "Mã vận đơn", "Thời gian quét", 'Xếp lên xe' AS "Loại quét"
                     FROM raw_quet_hang_xep_len_xe WHERE "Mã vận đơn" IN %s
