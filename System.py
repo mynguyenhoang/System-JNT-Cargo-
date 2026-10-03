@@ -471,7 +471,7 @@ def page_bao_cao_ontime():
 
         ty_le_1am = (tong_1am_dung_cot / tong_1am_truoc * 100) if tong_1am_truoc > 0 else 0
 
-        st.markdown("### Chỉ số Hiệu suất COT & 1AM")
+        st.markdown("### Chỉ số Hiệu suất Ontime")
         r1, r2, r3 = st.columns(3)
         r1.metric("Tổng volume IB", f"{tong_ib:,}")
         r2.metric("Tổng số đơn hàng được gửi đúng COT (按COT准时出库的订单量)", f"{tong_dung_cot:,}")
@@ -506,6 +506,27 @@ def page_bao_cao_ontime():
             r7.metric("Số đơn tuyến chính đến đúng hạn / 干线准时到达票数", f"{so_lh_den_dung_han:,}")
             r8.metric("Số đơn tuyến chính gửi đi đúng hạn / 干线准时发出票数", f"{so_lh_gui_dung_han:,}")
             r9.metric("Tỷ lệ tuyến chính gửi đi đúng hạn / 干线准时发出率", f"{ty_le_lh_gui_di:.2f}%")
+
+            # 6. Tuyến nhánh (Shuttle): giống tuyến chính nhưng Type OB = Shuttle
+            df_sh_dung_gio = df_bc[
+                (df_bc["Type OB"].astype(str).str.strip().str.lower() == "shuttle")
+                & (df_bc["Trạng thái"].astype(str).str.strip().str.lower() == "đúng giờ")
+                & (df_bc["Mã chuẩn"] != "")
+            ]
+            # Số đơn tuyến nhánh đến đúng hạn
+            so_sh_den_dung_han = df_sh_dung_gio["Mã chuẩn"].nunique()
+            # Số đơn tuyến nhánh gửi đi đúng hạn (thêm điều kiện Ontime = Giao đúng COT)
+            so_sh_gui_dung_han = df_sh_dung_gio[
+                df_sh_dung_gio["Ontime"].astype(str).str.strip().str.lower() == "giao đúng cot"
+            ]["Mã chuẩn"].nunique()
+            # Tỷ lệ = gửi đi đúng hạn / đến đúng hạn
+            ty_le_sh_gui_di = (so_sh_gui_dung_han / so_sh_den_dung_han * 100) if so_sh_den_dung_han > 0 else 0
+
+            st.markdown("---")
+            r10, r11, r12 = st.columns(3)
+            r10.metric("Số đơn tuyến nhánh đến đúng hạn / 支线准时到达票数", f"{so_sh_den_dung_han:,}")
+            r11.metric("Số đơn tuyến nhánh gửi đi đúng hạn / 支线准时发出票数", f"{so_sh_gui_dung_han:,}")
+            r12.metric("Tỷ lệ tuyến nhánh gửi đi đúng hạn / 支线准时发出率", f"{ty_le_sh_gui_di:.2f}%")
         else:
             st.warning("Bảng kpi_base chưa có cột 'Type OB' / 'Trạng thái' nên chưa tính được 2 chỉ số tuyến chính.")
 
