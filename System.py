@@ -499,9 +499,13 @@ def page_bao_cao_ontime():
                 df_lh_dung_gio["Ontime"].astype(str).str.strip().str.lower() == "giao đúng cot"
             ]["Mã chuẩn"].nunique()
 
-            r7, r8, _ = st.columns(3)
+            # Tỷ lệ = Số đơn tuyến chính gửi đi đúng hạn / Số đơn tuyến chính đến đúng hạn
+            ty_le_lh_gui_di = (so_lh_gui_dung_han / so_lh_den_dung_han * 100) if so_lh_den_dung_han > 0 else 0
+
+            r7, r8, r9 = st.columns(3)
             r7.metric("Số đơn tuyến chính đến đúng hạn / 干线准时到达票数", f"{so_lh_den_dung_han:,}")
             r8.metric("Số đơn tuyến chính gửi đi đúng hạn / 干线准时发出票数", f"{so_lh_gui_dung_han:,}")
+            r9.metric("Tỷ lệ tuyến chính gửi đi đúng hạn / 干线准时发出率", f"{ty_le_lh_gui_di:.2f}%")
         else:
             st.warning("Bảng kpi_base chưa có cột 'Type OB' / 'Trạng thái' nên chưa tính được 2 chỉ số tuyến chính.")
 
