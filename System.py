@@ -675,7 +675,7 @@ def main():
         st.markdown("## ⚙️ VẬN HÀNH QC")
         st.markdown("---")
         menu_lua_chon = st.radio(
-            "ĐIỀU HƯỚNG:",
+            "Chọn trang:",
             ["SẢN LƯỢNG | 生产", "Linehaul Ontime Departure / 干线准时发车", "Ontime 准时报表"],
             label_visibility="collapsed"
         )
