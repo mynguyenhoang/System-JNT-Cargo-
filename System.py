@@ -10,7 +10,6 @@ import streamlit as st
 # ==========================================
 st.set_page_config(
     page_title="QC Operations Hub",
-    page_icon="🚛",
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -163,7 +162,7 @@ def truy_van_du_lieu_tho(hub_chon, loai_chon, tu, den, tim):
         df_list.append(df_ob)
 
     # ---------------------------------------------------------
-    # C. Gộp Data & Chạy Logic Check Trùng Y CHANG CŨ
+    # C. Gộp Data & Chạy Logic Check Trùng
     # ---------------------------------------------------------
     if not df_list:
         return pd.DataFrame()
@@ -196,7 +195,6 @@ def truy_van_du_lieu_tho(hub_chon, loai_chon, tu, den, tim):
                 df_hist_list.append(pd.read_sql(sql_hist_ob, con2, params=(chunk,)))
             con2.close()
 
-            # Logic check trùng OB y chang bản cũ
             df_hist = pd.concat(df_hist_list, ignore_index=True)
             df_hist["Mã chuẩn"] = _chuan_hoa_ma(df_hist["Mã vận đơn"])
             df_hist["Thời gian quét_dt"] = pd.to_datetime(df_hist["Thời gian quét"], errors="coerce")
@@ -232,13 +230,12 @@ def truy_van_du_lieu_tho(hub_chon, loai_chon, tu, den, tim):
 # 4. GIAO DIỆN TỪNG TRANG
 # ==========================================
 def page_du_lieu_tho():
-    st.markdown('<div class="main-header"><h1>🗄️ TRUY VẤN QUÉT HÀNG</h1><p>Dữ liệu IB lấy từ kpi_base | Dữ liệu OB lấy từ raw_quet_hang_xep_len_xe</p></div>', unsafe_allow_html=True)
+    st.markdown('<div class="main-header"><h1>TRUY VẤN QUÉT HÀNG</h1><p>Dữ liệu IB lấy từ kpi_base | Dữ liệu OB lấy từ raw_quet_hang_xep_len_xe</p></div>', unsafe_allow_html=True)
     
-    with st.expander("🔍 BỘ LỌC TÌM KIẾM", expanded=True):
+    with st.expander("BỘ LỌC TÌM KIẾM", expanded=True):
         with st.form("bo_loc"):
             c1, c2, c3 = st.columns(3)
-            # Hub đang fix cứng để test, nếu muốn có thể viết hàm lấy Hub từ DB sau
-            hub_chon = c1.multiselect("Hub (Bưu cục quét)", ["HCM HUB", "BN HUB", "SH DC"], placeholder="Tất cả")
+            hub_chon = c1.multiselect("Hub (Bưu cục quét)", ["HCM HUB", "BN HUB", "SH DC", "CTO SC"], placeholder="Tất cả")
             loai_chon = c2.multiselect("Loại quét", ["Dỡ xuống xe", "Xếp lên xe"], placeholder="Tất cả (IB & OB)")
             tim = c3.text_input("Tìm mã vận đơn (Tuỳ chọn)").strip()
             
@@ -246,7 +243,7 @@ def page_du_lieu_tho():
             tu = c4.date_input("Từ ngày vận hành", value=datetime.date.today(), format="YYYY-MM-DD")
             den = c5.date_input("Đến ngày vận hành", value=datetime.date.today(), format="YYYY-MM-DD")
             
-            submit = st.form_submit_button("🚀 TRUY VẤN DỮ LIỆU", type="primary", use_container_width=True)
+            submit = st.form_submit_button("TRUY VẤN DỮ LIỆU", type="primary", use_container_width=True)
 
     if submit:
         st.session_state["kq_tho"] = truy_van_du_lieu_tho(
@@ -310,11 +307,11 @@ def page_du_lieu_tho():
             st.warning("Không tìm thấy dữ liệu phù hợp với bộ lọc!")
 
 def page_ontime_xep_xe():
-    st.title("🚛 Đang chờ update logic...")
+    st.title("Đang chờ update logic...")
     st.info("Test xong trang Dữ liệu thô thì nhắn mình để update phần này nhé!")
 
 def page_bao_cao_ontime():
-    st.title("📈 Đang chờ update logic...")
+    st.title("Đang chờ update logic...")
     st.info("Test xong trang Dữ liệu thô thì nhắn mình để update phần này nhé!")
 
 # ==========================================
@@ -322,21 +319,21 @@ def page_bao_cao_ontime():
 # ==========================================
 def main():
     with st.sidebar:
-        st.markdown("## ⚙️ VẬN HÀNH QC")
+        st.markdown("## VẬN HÀNH QC")
         st.markdown("---")
         menu_lua_chon = st.radio(
             "ĐIỀU HƯỚNG:",
-            ["🗄️ Dữ liệu thô", "🚛 Ontime Xếp xe", "📈 Báo cáo Ontime"],
+            ["Dữ liệu thô", "Ontime Xếp xe", "Báo cáo Ontime"],
             label_visibility="collapsed"
         )
         st.markdown("---")
-        st.caption(f"📅 Hôm nay: {datetime.date.today().strftime('%d/%m/%Y')}")
+        st.caption(f"Hôm nay: {datetime.date.today().strftime('%d/%m/%Y')}")
 
-    if menu_lua_chon == "🗄️ Dữ liệu thô":
+    if menu_lua_chon == "Dữ liệu thô":
         page_du_lieu_tho()
-    elif menu_lua_chon == "🚛 Ontime Xếp xe":
+    elif menu_lua_chon == "Ontime Xếp xe":
         page_ontime_xep_xe()
-    elif menu_lua_chon == "📈 Báo cáo Ontime":
+    elif menu_lua_chon == "Báo cáo Ontime":
         page_bao_cao_ontime()
 
 if __name__ == "__main__":
